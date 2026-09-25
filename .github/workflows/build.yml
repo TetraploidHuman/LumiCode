@@ -124,7 +124,10 @@ jobs:
           $exeSize = (Get-Item $target).Length
           Write-Host "LumiCode-portable.exe: $exeSize bytes"
           if ($exeSize -lt 20MB) { throw "portable exe looks too small ($exeSize bytes)" }
-          & $sevenZip l $target | Select-String -Pattern "run.cmd|LumiCode.exe|java.exe" | Select-Object -First 4 | Out-String | Write-Host
+          Write-Host "--- payload listing (first 16 lines) ---"
+          & $sevenZip l $target | Select-Object -First 16 | Out-String | Write-Host
+          Write-Host "--- entries named LumiCode.exe / run.cmd / java.exe ---"
+          & $sevenZip l $target | Select-String -Pattern "LumiCode.exe|run.cmd|java.exe" | Out-String | Write-Host
 
       # 真机冒烟测试：在 Windows runner 上直接跑这个 exe，轮询确认它解压出 app image
       # 探针用 [System.IO.Path]::GetTempPath()，与 SFX 内部 GetTempPathW 完全一致
@@ -155,12 +158,18 @@ jobs:
                       Where-Object { $before[$r] -notcontains $_.Name }
               foreach ($d in $dirs) {
                 $files = @(Get-ChildItem $d.FullName -Recurse -File -ErrorAction SilentlyContinue)
-                if ($files.Count -gt 0) { Write-Host "candidate $($d.FullName): $($files.Count) files" }
-                if ((Test-Path (Join-Path $d.FullName "LumiCode.exe")) -and
-                    (Test-Path (Join-Path $d.FullName "runtime/bin/java.exe"))) {
+                if ($files.Count -gt 0) {
+                  Write-Host "candidate $($d.FullName): $($files.Count) files"
+                  Write-Host ("  top level: " + ((Get-ChildItem $d.FullName | Select-Object -First 25 -ExpandProperty Name) -join ', '))
+                  Write-Host ("  first files: " + (($files | Select-Object -First 6 -ExpandProperty FullName) -join ' ; '))
+                }
+                $exeHit = Get-ChildItem $d.FullName -Recurse -Filter "LumiCode.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                $javaHit = Get-ChildItem $d.FullName -Recurse -Filter "java.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($exeHit) { Write-Host "  LumiCode.exe -> $($exeHit.FullName)" }
+                if ($javaHit) { Write-Host "  java.exe     -> $($javaHit.FullName)" }
+                if ($exeHit -and $javaHit) {
                   $extracted = $true
-                  Write-Host "extracted to: $($d.FullName) ($($files.Count) files)"
-                  Get-ChildItem $d.FullName | Select-Object -First 12 Name | Format-Table | Out-String | Write-Host
+                  Write-Host "extracted to: $($exeHit.DirectoryName) ($($files.Count) files)"
                   foreach ($probe in @("run.cmd", "LumiCode.exe", "app/LumiCode.cfg", "runtime/bin/java.exe")) {
                     Write-Host ("  has {0}: {1}" -f $probe, (Test-Path (Join-Path $d.FullName $probe)))
                   }
