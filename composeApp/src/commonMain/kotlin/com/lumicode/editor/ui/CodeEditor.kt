@@ -140,6 +140,20 @@ fun CodeEditor(
 
         val activeLine = SyntaxHighlighter.lineOf(value.text, value.selection.start) + 1
 
+        // 上下键（或输入）把光标移出可视区时自动滚动，保证光标行始终可见
+        val cursorLineIndex = SyntaxHighlighter.lineOf(value.text, value.selection.start)
+        val viewportHeightPx = with(density) { maxHeight.toPx() }
+        LaunchedEffect(cursorLineIndex, viewportHeightPx) {
+            val top = cursorLineIndex * lineHeightPx
+            val bottom = top + lineHeightPx
+            val scroll = verticalScroll.value.toFloat()
+            when {
+                top < scroll -> verticalScroll.scrollTo(top.toInt().coerceAtLeast(0))
+                bottom > scroll + viewportHeightPx ->
+                    verticalScroll.scrollTo((bottom - viewportHeightPx).toInt().coerceAtLeast(0))
+            }
+        }
+
         // 光标移动时：行高亮带与侧边标记平滑滑过去，而不是瞬间跳
         val lineOffset by animateDpAsState(
             targetValue = lineHeight * (activeLine - 1),

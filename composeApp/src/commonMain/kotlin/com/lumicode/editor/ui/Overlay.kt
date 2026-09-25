@@ -380,8 +380,8 @@ private fun SettingsOverlay(state: IdeState, compact: Boolean) {
         StepperRow(
             label = "代码字号",
             hint = "当前 ${RlSettings.codeFontSize.toInt()} sp（行高自动跟随）",
-            onMinus = { RlSettings.codeFontSize = (RlSettings.codeFontSize - 1f).coerceAtLeast(11f) },
-            onPlus = { RlSettings.codeFontSize = (RlSettings.codeFontSize + 1f).coerceAtLeast(11f).coerceAtMost(20f) },
+            onMinus = { RlSettings.codeFontSize = (RlSettings.codeFontSize - 1f).coerceAtLeast(12f) },
+            onPlus = { RlSettings.codeFontSize = (RlSettings.codeFontSize + 1f).coerceAtLeast(12f).coerceAtMost(22f) },
         )
         ChoiceRow(
             label = "制表符宽度",

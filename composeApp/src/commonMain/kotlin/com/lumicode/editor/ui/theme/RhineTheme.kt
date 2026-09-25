@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -47,14 +48,14 @@ object RlColors {
  */
 object RlSettings {
     /** 代码字号（sp），行高按它推算，保证行号与代码对齐。 */
-    var codeFontSize by mutableStateOf(13f)
+    var codeFontSize by mutableStateOf(14f)
     var tabWidth by mutableStateOf(4)
     var showLineNumbers by mutableStateOf(true)
     var showRail by mutableStateOf(true)
 
-    val codeLineHeight: Dp get() = (codeFontSize + 8f).dp
+    val codeLineHeight: Dp get() = (codeFontSize + 9f).dp
 
-    fun lineHeightSp(): Float = codeFontSize + 8f
+    fun lineHeightSp(): Float = codeFontSize + 9f
 }
 
 /**
@@ -102,8 +103,8 @@ object RlType {
     val body: TextStyle get() = TextStyle(
         fontFamily = Display,
         fontWeight = FontWeight.Normal,
-        fontSize = 13.sp,
-        lineHeight = 22.sp,
+        fontSize = 14.sp,
+        lineHeight = 24.sp,
         letterSpacing = 0.0.em,
         color = RlColors.InkSoft,
     )
@@ -111,13 +112,13 @@ object RlType {
     val bodySmall: TextStyle get() = TextStyle(
         fontFamily = Display,
         fontWeight = FontWeight.Normal,
-        fontSize = 11.5.sp,
-        lineHeight = 18.sp,
+        fontSize = 12.5.sp,
+        lineHeight = 19.sp,
         color = RlColors.InkSoft,
     )
 
     /** Micro label: uppercase, wide tracking, monospace — used everywhere as chrome. */
-    fun label(size: TextUnit = 10.sp, color: Color = RlColors.Muted) = TextStyle(
+    fun label(size: TextUnit = 11.sp, color: Color = RlColors.Muted) = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Medium,
         fontSize = size,
@@ -129,7 +130,7 @@ object RlType {
     val value: TextStyle get() = TextStyle(
         fontFamily = Display,
         fontWeight = FontWeight.Medium,
-        fontSize = 13.sp,
+        fontSize = 14.sp,
         lineHeight = 16.sp,
         letterSpacing = 0.0.em,
         color = RlColors.Ink,
@@ -138,8 +139,8 @@ object RlType {
     val mono: TextStyle get() = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
-        lineHeight = 17.sp,
+        fontSize = 13.sp,
+        lineHeight = 19.sp,
         letterSpacing = 0.02.em,
         color = RlColors.InkSoft,
     )
@@ -147,8 +148,8 @@ object RlType {
     val monoMicro: TextStyle get() = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
-        fontSize = 10.sp,
-        lineHeight = 13.sp,
+        fontSize = 11.sp,
+        lineHeight = 15.sp,
         letterSpacing = 0.04.em,
         color = RlColors.Faint,
     )
@@ -158,6 +159,10 @@ object RlType {
         fontWeight = FontWeight.Normal,
         fontSize = RlSettings.codeFontSize.sp,
         lineHeight = RlSettings.lineHeightSp().sp,
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.None,
+        ),
         letterSpacing = 0.0.em,
         color = RlColors.CodeDefault,
     )
@@ -167,6 +172,10 @@ object RlType {
         fontWeight = FontWeight.Normal,
         fontSize = (RlSettings.codeFontSize - 1.5f).sp,
         lineHeight = RlSettings.lineHeightSp().sp,
+        lineHeightStyle = LineHeightStyle(
+            alignment = LineHeightStyle.Alignment.Center,
+            trim = LineHeightStyle.Trim.None,
+        ),
         letterSpacing = 0.02.em,
         color = RlColors.Faint,
     )

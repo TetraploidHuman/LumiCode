@@ -53,29 +53,36 @@ fun TopBar(
         verticalAlignment = Alignment.Top,
     ) {
         Column {
-            BasicText(
-                text = "LUMICODE",
-                style = RlType.title.copy(fontSize = if (compact) 22.sp else 30.sp, lineHeight = if (compact) 22.sp else 30.sp),
-            )
-            if (!compact) {
-                Spacer(Modifier.height(6.dp))
-                Label("信息综合处理")
-            }
-            Spacer(Modifier.height(2.dp))
+            // 两个标题放在同一行：LUMICODE ANALYSIS OS
             Row(verticalAlignment = Alignment.Bottom) {
+                BasicText(
+                    text = "LUMICODE",
+                    style = RlType.title.copy(
+                        fontSize = if (compact) 19.sp else 30.sp,
+                        lineHeight = if (compact) 21.sp else 31.sp,
+                    ),
+                )
+                HGap(if (compact) 7.dp else 14.dp)
                 BasicText(
                     text = "ANALYSIS",
                     style = RlType.title.copy(
-                        fontSize = if (compact) 22.sp else 30.sp,
-                        lineHeight = if (compact) 22.sp else 30.sp,
+                        fontSize = if (compact) 19.sp else 30.sp,
+                        lineHeight = if (compact) 21.sp else 31.sp,
                         letterSpacing = 0.02.em,
                     ),
                 )
-                HGap(if (compact) 6.dp else 10.dp)
+                HGap(if (compact) 4.dp else 8.dp)
                 BasicText(
                     text = "OS",
-                    style = RlType.title.copy(fontSize = if (compact) 22.sp else 30.sp, lineHeight = if (compact) 22.sp else 30.sp),
+                    style = RlType.title.copy(
+                        fontSize = if (compact) 19.sp else 30.sp,
+                        lineHeight = if (compact) 21.sp else 31.sp,
+                    ),
                 )
+            }
+            if (!compact) {
+                Spacer(Modifier.height(7.dp))
+                Label("信息综合处理 · 代码档案工作台")
             }
         }
 
@@ -99,25 +106,27 @@ fun TopBar(
                 BasicText("◎", style = RlType.mono.copy(fontSize = 13.sp, color = RlColors.Ink))
                 if (!compact) {
                     HGap(10.dp)
-                    Label("档案检索", style = RlType.label(10.sp, RlColors.InkSoft))
+                    Label("档案检索", style = RlType.label(11.sp, RlColors.InkSoft))
+                    HGap(14.dp)
+                    Chip(text = "⌘K")
                 }
-                HGap(14.dp)
-                Chip(text = "⌘K")
             }
             HGap(if (compact) 14.dp else 22.dp)
             GhostButton(text = if (compact) "" else "新建文件", glyph = "+", onClick = { state.newFile() })
-            HGap(8.dp)
-            LabelRaw(
-                text = state.openTabs.size.toString().padStart(2, '0'),
-                style = RlType.label(10.sp, RlColors.Faint),
-            )
+            if (!compact) {
+                HGap(8.dp)
+                LabelRaw(
+                    text = state.openTabs.size.toString().padStart(2, '0'),
+                    style = RlType.label(11.sp, RlColors.Faint),
+                )
+            }
             if (!compact) {
                 HGap(22.dp)
-                LabelRaw(text = "已保存", style = RlType.label(10.sp, RlColors.Muted))
+                LabelRaw(text = "已保存", style = RlType.label(11.sp, RlColors.Muted))
                 HGap(8.dp)
                 LabelRaw(
                     text = state.savedCount.toString().padStart(2, '0'),
-                    style = RlType.label(10.sp, RlColors.Ink),
+                    style = RlType.label(11.sp, RlColors.Ink),
                 )
             }
             HGap(if (compact) 14.dp else 22.dp)
@@ -135,7 +144,7 @@ fun TopBar(
                 GearIcon(size = 16.dp)
                 if (!compact) {
                     HGap(7.dp)
-                    Label("设置", style = RlType.label(10.sp, RlColors.InkSoft))
+                    Label("设置", style = RlType.label(11.sp, RlColors.InkSoft))
                 }
             }
         }

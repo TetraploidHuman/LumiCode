@@ -22,12 +22,18 @@ else
   rm -rf "${DEST:?}"/* && cp -r "$SRC"/* "$DEST"/
 fi
 
-if systemctl --user list-unit-files "$UNIT" >/dev/null 2>&1; then
-  echo "==> 重启 $UNIT"
-  systemctl --user restart "$UNIT"
-  systemctl --user is-active "$UNIT"
+# 非登录 shell 里没有会话总线变量，这里补上（脚本常被 CI/定时任务调用）
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "$XDG_RUNTIME_DIR/bus" ]]; then
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+fi
+
+if systemctl --user restart "$UNIT" 2>/dev/null; then
+  echo "==> 已重启 $UNIT：$(systemctl --user is-active "$UNIT")"
 else
-  echo "!! 未安装用户服务 $UNIT，请先执行 deploy/install-service.sh"
+  # 静态服务每次请求都从磁盘读，未重启也是最新内容；只是让状态更干净
+  echo "!! 无法通过 systemctl --user 重启（可能未安装该单元），"
+  echo "   静态文件已同步，服务下次启动即用新内容；如需立即重启请执行 deploy/install-service.sh"
 fi
 
 echo "==> 完成：通过 Caddy 访问 http://127.0.0.1:11024/code/"

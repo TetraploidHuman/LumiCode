@@ -53,6 +53,11 @@
 - **键盘焦点**：点击界面任意位置都会把键盘焦点交回外壳，避免某些情况下快捷键/ESC 失灵（浏览器端尤其明显）。
 - **动效**：光标换行时，当前行高亮带与左侧行号栏的高亮标记会用 140ms 的缓动滑过去；
   查找跳转 / 大纲跳转用的是平滑滚动。
+- **光标可见性**：上下方向键（或输入）把光标移出可视区时自动滚动，光标行始终留在框内；
+  行高亮带按 `LineHeightStyle.Alignment.Center` 在行框内垂直居中，
+  行高比字形高时不会出现「代码贴上边」。
+- **字号**：代码默认 14sp（设置页 12–22sp 可调，行高自动跟随），
+  标签/状态栏/遥测栏在 11–13sp，都对齐到「文件名」那一档的可读性。
 
 ### 自适应：桌面宽屏 / 手机窄屏
 
@@ -69,7 +74,8 @@
 [文档内查找](docs/screenshots/04-find-in-document.png) ·
 [分析流程](docs/screenshots/05-analysis-pass.png) ·
 [设置页](docs/screenshots/06-settings.png) ·
-[工作区总览](docs/screenshots/07-workspace-overview.png)。
+[工作区总览](docs/screenshots/07-workspace-overview.png) ·
+[行高亮细节](docs/screenshots/10-line-highlight-detail.png)。
 
 ---
 
