@@ -94,9 +94,13 @@ jobs:
           if (-not $sfx) { throw "could not obtain 7zSD.sfx" }
           Copy-Item -Force $sfx "$env:GITHUB_WORKSPACE/7zSD.sfx"
 
-          # SFX 的入口文件（放在 app-image 里，避免再复制一遍整个运行时目录）
-          $batch = "@echo off`r`nstart /wait `"`" `"%~dp0LumiCode.exe`" %*`r`n"
-          [System.IO.File]::WriteAllText((Join-Path $appImage "run.cmd"), $batch, [System.Text.Encoding]::ASCII)
+          # 入口名：实测这个 2019 版 7zSD.sfx 只认 setup.exe（run/install/start 与 .cmd 都不会被执行）
+          # setup.exe 就是 jpackage launcher 的副本；launcher 按自身文件名找 app/<name>.cfg，
+          # 所以同时复制一份 setup.cfg，保证用哪个名字都能读到配置
+          Copy-Item -Force (Join-Path $appImage "LumiCode.exe") (Join-Path $appImage "setup.exe")
+          Copy-Item -Force (Join-Path $appImage "app/LumiCode.cfg") (Join-Path $appImage "app/setup.cfg")
+          if (-not (Test-Path (Join-Path $appImage "setup.exe"))) { throw "failed to stage setup.exe" }
+          if (-not (Test-Path (Join-Path $appImage "app/setup.cfg"))) { throw "failed to stage app/setup.cfg" }
           Write-Host "app image files: $((Get-ChildItem $appImage -Recurse -File).Count)"
 
           $payload = Join-Path $env:GITHUB_WORKSPACE "payload.7z"
@@ -143,7 +147,7 @@ jobs:
 
           $cmdExe = Join-Path $env:SystemRoot "System32\cmd.exe"
           $results = @{}
-          foreach ($name in @("run.exe", "setup.exe", "install.exe", "start.exe", "run.cmd", "setup.cmd")) {
+          foreach ($name in @("setup.exe", "run.exe", "run.cmd")) {
             $tag = ($name -replace '\.', '')
             $dir = Join-Path $env:RUNNER_TEMP "sfxprobe-$tag"
             $marker = Join-Path $env:RUNNER_TEMP "sfx-$tag.txt"
@@ -223,12 +227,12 @@ jobs:
                 # 注意：jpackage 的 app-image 会 strip 掉 runtime/bin/java.exe，不能用它判断
                 $exeHit = Get-ChildItem $d.FullName -Recurse -Filter "LumiCode.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
                 $hasCfg = Test-Path (Join-Path $d.FullName "app/LumiCode.cfg")
-                $hasBatch = Test-Path (Join-Path $d.FullName "run.cmd")
+                $hasEntry = (Test-Path (Join-Path $d.FullName "setup.exe")) -and (Test-Path (Join-Path $d.FullName "app/setup.cfg"))
                 $hasJvm = (Test-Path (Join-Path $d.FullName "runtime/bin/server/jvm.dll")) -or
                           (Test-Path (Join-Path $d.FullName "runtime/bin/jvm.dll"))
                 if ($exeHit) { Write-Host "  LumiCode.exe -> $($exeHit.FullName)" }
-                Write-Host "  app/LumiCode.cfg: $hasCfg | run.cmd: $hasBatch | jvm.dll: $hasJvm"
-                if ($exeHit -and $hasCfg -and $hasBatch -and $hasJvm) {
+                Write-Host "  app/LumiCode.cfg: $hasCfg | setup.exe+cfg: $hasEntry | jvm.dll: $hasJvm"
+                if ($exeHit -and $hasCfg -and $hasEntry -and $hasJvm) {
                   $extracted = $true
                   Write-Host "extracted to: $($exeHit.DirectoryName) ($($files.Count) files)"
                   foreach ($probe in @("run.cmd", "LumiCode.exe", "app/LumiCode.cfg", "runtime/bin/java.exe")) {
