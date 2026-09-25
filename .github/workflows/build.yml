@@ -56,6 +56,77 @@ jobs:
         shell: bash
         run: ./gradlew --no-daemon :composeApp:createDistributable --console=plain
 
+      # 单文件「双击即运行」：7zSD.sfx（LZMA SDK 自带的 installer SFX）+ 7z 载荷
+      # 该 SFX 的行为（源自 C/Util/SfxSetup/SfxSetup.c）：
+      #   1) 解压到临时目录；2) 自动执行根目录下名为 run/setup/install/start 的 exe|cmd|bat；
+      #   3) WaitForSingleObject 等主程序退出；4) 删除临时目录。
+      # 因此把 jpackage app-image 的内容平铺到载荷根目录，再用 run.cmd 调起 LumiCode.exe。
+      # （不重命名 launcher：jpackage 的启动器按自身文件名找 app/<name>.cfg）
+      - name: Build single-file portable EXE (7-Zip SFX)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = "Stop"
+          $appImage = "composeApp/build/compose/binaries/main/app/LumiCode"
+          if (-not (Test-Path "$appImage/LumiCode.exe")) { throw "app image not found: $appImage" }
+
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          if (-not (Test-Path $sevenZip)) { $sevenZip = "C:\Program Files (x86)\7-Zip\7z.exe" }
+          if (-not (Test-Path $sevenZip)) { throw "7z.exe not found" }
+
+          # 7zSD.sfx 只随 LZMA SDK 分发（7-Zip 安装目录里的 7z.sfx 不支持自动执行）
+          $sfx = $null
+          foreach ($url in @("https://www.7-zip.org/a/lzma1900.7z", "https://www.7-zip.org/a/lzma1604.7z")) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile sdk.7z -UseBasicParsing
+              & $sevenZip e sdk.7z -o. "bin/7zSD.sfx" -y | Out-Null
+              if (Test-Path "7zSD.sfx") { $sfx = "$PWD/7zSD.sfx"; Write-Host "sfx module from $url"; break }
+            } catch { Write-Host "skip $url : $_" }
+          }
+          if (-not $sfx) { throw "could not obtain 7zSD.sfx" }
+
+          # staging：app-image 内容平铺 + run.cmd（SFX 只认固定的几个入口文件名）
+          Remove-Item -Recurse -Force stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path stage | Out-Null
+          Copy-Item -Recurse -Force "$appImage/*" stage/
+          $batch = "@echo off`r`nstart /wait `"`" `"%~dp0LumiCode.exe`" %*`r`n"
+          [System.IO.File]::WriteAllText("$PWD/stage/run.cmd", $batch, [System.Text.Encoding]::ASCII)
+          Get-ChildItem stage | Select-Object Name
+
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          Push-Location stage
+          & $sevenZip a -t7z -mx=9 -bso0 -bsp0 "$env:GITHUB_WORKSPACE/payload.7z" "*"
+          $code = $LASTEXITCODE
+          Pop-Location
+          if ($code -ne 0) { throw "7z payload failed" }
+
+          cmd /c copy /b "$sfx" + "$env:GITHUB_WORKSPACE/payload.7z" "$env:GITHUB_WORKSPACE/out/LumiCode-portable.exe" | Out-Null
+          Get-Item "out/LumiCode-portable.exe" | Select-Object Name, Length
+
+      # 真机冒烟测试：在 Windows runner 上直接跑一次这个 exe，确认能解压并拉起进程
+      - name: Smoke test portable EXE
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $exe = "out/LumiCode-portable.exe"
+          if (-not (Test-Path $exe)) { throw "portable exe missing" }
+          $before = (Get-ChildItem $env:TEMP -Directory -ErrorAction SilentlyContinue).Name
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 60
+          $new = (Get-ChildItem $env:TEMP -Directory -ErrorAction SilentlyContinue | Where-Object { $before -notcontains $_.Name })
+          foreach ($d in $new) {
+            Write-Host "temp dir: $($d.FullName)"
+            Get-ChildItem $d.FullName | Select-Object -First 10 Name | Format-Table | Out-String | Write-Host
+            foreach ($probe in @("run.cmd", "LumiCode.exe", "app/LumiCode.cfg", "runtime/bin/java.exe")) {
+              Write-Host ("  has {0}: {1}" -f $probe, (Test-Path (Join-Path $d.FullName $probe)))
+            }
+          }
+          Write-Host "processes:"
+          Get-Process | Where-Object { $_.ProcessName -match "run|LumiCode|java" } | Select-Object Id, ProcessName, StartTime | Format-Table | Out-String | Write-Host
+          Get-Process | Where-Object { $_.ProcessName -match "^(run|LumiCode|java)$" } | Stop-Process -Force -ErrorAction SilentlyContinue
+          if ($p -and -not $p.HasExited) { $p | Stop-Process -Force -ErrorAction SilentlyContinue }
+          Write-Host "smoke test finished"
+
       - name: Collect artifacts
         shell: bash
         run: |
@@ -112,7 +183,7 @@ jobs:
       - name: Collect artifacts
         run: |
           mkdir -p out
-          cp composeApp/build/outputs/apk/release/*.apk "out/LumiCode-${GITHUB_SHA::7}-release.apk"
+          cp composeApp/build/outputs/apk/release/*.apk "out/LumiCode-android-release.apk"
           ls -la out
 
       - name: Upload APK
@@ -208,11 +279,15 @@ jobs:
 
             | 平台 | 文件 | 说明 |
             | --- | --- | --- |
-            | Windows | `LumiCode-1.0.0.msi` | 安装包，双击安装（需要 Windows 10+，内置运行时，无需装 Java） |
-            | Windows | `LumiCode-windows-portable.zip` | 便携版，解压后运行 `LumiCode.exe` |
-            | Android | `LumiCode-*-release.apk` | 直接安装（需允许「未知来源」）；签名使用 CI 临时密钥，仅供试用 |
-            | Linux | `*.deb` | `sudo dpkg -i` 安装 |
+            | Windows | `LumiCode-portable.exe` | **单文件，双击即运行，不安装**。自解压到临时目录后启动；退出后自动清理 |
+            | Windows | `LumiCode-windows-portable.zip` | 便携版压缩包：解压一次后双击 `LumiCode.exe`，之后每次启动更快（不用重新解压） |
+            | Windows | `LumiCode-1.0.0.msi` | 安装版：会写入开始菜单/卸载项，适合长期使用 |
+            | Android | `LumiCode-android-release.apk` | 直接安装（需允许「未知来源」）；签名用 CI 临时密钥，仅供试用 |
+            | Linux | `lumicode_*.deb` | `sudo dpkg -i` 安装 |
             | Web | `LumiCode-web-wasm.zip` | 解压后用任意静态服务器托管 `index.html`（或 `python3 -m http.server`） |
+
+            **关于 Windows 提示**：这些产物没有代码签名证书，首次运行会出现蓝色「Windows 已保护你的电脑 / 未知发布者」提示 —
+            点「更多信息」→「仍要运行」即可。想彻底消掉需要买一张代码签名证书（约 ¥1000/年）。
 
             > 构建产物由 GitHub Actions 生成，提交：`${{ steps.meta.outputs.sha }}`
 

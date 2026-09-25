@@ -55,25 +55,35 @@
 
 不想自己编译的话，去 **[Releases → v0.1.0-demo](https://github.com/TetraploidHuman/LumiCode/releases/latest)** 直接下载：
 
-- Windows：[`LumiCode-1.0.0.msi`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-1.0.0.msi)（安装包） / [`LumiCode-windows-portable.zip`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-windows-portable.zip)（便携版）
-- Android：[`LumiCode-a6348a5-release.apk`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-a6348a5-release.apk)
-- Linux / Web：`.deb` 与 `LumiCode-web-wasm.zip`
+- **Windows（推荐，免安装）**：[`LumiCode-portable.exe`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-portable.exe)
+  —— **单文件，双击即运行**：会自解压到临时目录再启动，退出后自动清理（首次启动约 10–20 秒）
+- Windows（反复使用更快）：[`LumiCode-windows-portable.zip`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-windows-portable.zip)
+  —— 解压一次后双击 `LumiCode.exe`，之后每次启动只要几秒
+- Windows（安装版）：[`LumiCode-1.0.0.msi`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-1.0.0.msi)
+  —— 写开始菜单与卸载项，不想「安装」就用上面两个
+- **Android**：[`LumiCode-android-release.apk`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-android-release.apk)
+- Linux / Web：`lumicode_*.deb` 与 `LumiCode-web-wasm.zip`
+
+> 以上 Windows 产物均内置 JRE，**不需要预装 Java**。因为没有代码签名证书，首次运行 Windows 会提示
+> 「未知发布者 / Windows 已保护你的电脑」，点「更多信息 → 仍要运行」即可；用 MSI 安装则是 SmartScreen 的「仍要运行」同款提示。
 
 完整清单：
 
 | 平台 | 文件 | 用法 |
 | --- | --- | --- |
-| Windows | `LumiCode-1.0.0.msi` | 双击安装（内置 JRE，无需先装 Java） |
-| Windows | `LumiCode-windows-portable.zip` | 便携版，解压后运行 `LumiCode.exe` |
-| Android | `LumiCode-*-release.apk` | 直接安装（需允许「未知来源」） |
-| Linux | `*.deb` | `sudo dpkg -i LumiCode_1.0.0_amd64.deb` |
+| Windows | `LumiCode-portable.exe` | **双击即运行（免安装）**，自解压到临时目录 |
+| Windows | `LumiCode-windows-portable.zip` | 解压后运行 `LumiCode.exe`（重复启动更快） |
+| Windows | `LumiCode-1.0.0.msi` | 安装版（开始菜单 + 卸载项） |
+| Android | `LumiCode-android-release.apk` | 直接安装（需允许「未知来源」） |
+| Linux | `lumicode_*.deb` | `sudo dpkg -i lumicode_1.0.0_amd64.deb` |
 | Web | `LumiCode-web-wasm.zip` | 解压后用任意静态服务器托管 `index.html` |
 
 这些产物由 [`.github/workflows/build.yml`](.github/workflows/build.yml) 在 GitHub Actions 上构建：
 Windows runner 上用 jpackage + WiX 出 MSI/便携版，Ubuntu runner 上出签名 APK、deb 与 Wasm 产物，然后统一发布到 Release。
 打 `v*` 标签会自动触发，也可以在 Actions 页面手动 `Run workflow`。
 
-> APK 使用 CI 每次运行临时生成的签名密钥（当前指纹 `SHA-256 011ed98e…6d44`，每次构建都会变），仅适合试用；
+> Windows 单文件版用 LZMA SDK 的 `7zSD.sfx` 做自解压（CI 里会实跑一次冒烟测试）；
+> APK 使用 CI 每次运行临时生成的签名密钥（每次构建都会变），仅适合试用；
 > 要长期分发请替换成你自己的 keystore。MSI/便携版内置 JRE，用户无需预装 Java。
 
 ---
