@@ -130,9 +130,10 @@ jobs:
           Write-Host "--- entries named LumiCode.exe / run.cmd / java.exe ---"
           & $sevenZip l $target | Select-String -Pattern "LumiCode.exe|run.cmd|java.exe" | Out-String | Write-Host
 
-      # 机制自检：用同一个 7zSD.sfx + 迷你载荷，确认 SFX 会自动执行根目录的 run.cmd
-      # 迷你载荷解压只要 1 秒，比拿 46MB 的真实载荷试错快得多，也不受 GUI 无法启动的干扰
-      - name: Verify SFX entry mechanism (mini payload)
+      # 机制自检：7zSD.sfx 到底认哪个入口名？
+      # lzma1900 里的 bin/7zSD.sfx 是 2019 年的预编译二进制，比 SDK 里的 SfxSetup.c 还老，
+      # 行为未必一致，所以逐个候选名建迷你 SFX 实测（用 cmd.exe 当探针，靠命令行参数写标记文件）
+      - name: Probe SFX entry names (mini payloads)
         shell: pwsh
         run: |
           $sevenZip = "C:\Program Files\7-Zip\7z.exe"
@@ -140,41 +141,50 @@ jobs:
           $sfx = "$env:GITHUB_WORKSPACE/7zSD.sfx"
           if (-not (Test-Path $sfx)) { throw "7zSD.sfx not kept by the packaging step" }
 
-          $marker = Join-Path $env:RUNNER_TEMP "sfx-entry-ran.txt"
-          Remove-Item -Force $marker -ErrorAction SilentlyContinue
-          $probeDir = Join-Path $env:RUNNER_TEMP "sfxprobe"
-          Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+          $cmdExe = Join-Path $env:SystemRoot "System32\cmd.exe"
+          $results = @{}
+          foreach ($name in @("run.exe", "setup.exe", "install.exe", "start.exe", "run.cmd", "setup.cmd")) {
+            $tag = ($name -replace '\.', '')
+            $dir = Join-Path $env:RUNNER_TEMP "sfxprobe-$tag"
+            $marker = Join-Path $env:RUNNER_TEMP "sfx-$tag.txt"
+            Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
+            Remove-Item -Force $marker -ErrorAction SilentlyContinue
+            New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
-          $cmd = "@echo off`r`necho ran %DATE% %TIME% > `"$marker`"`r`n"
-          [System.IO.File]::WriteAllText((Join-Path $probeDir "run.cmd"), $cmd, [System.Text.Encoding]::ASCII)
+            if ($name.EndsWith(".exe")) {
+              Copy-Item -Force $cmdExe (Join-Path $dir $name)
+            } else {
+              $body = "@echo off`r`necho ran > `"$marker`"`r`n"
+              [System.IO.File]::WriteAllText((Join-Path $dir $name), $body, [System.Text.Encoding]::ASCII)
+            }
 
-          Push-Location $probeDir
-          & $sevenZip a -t7z -bso0 -bsp0 (Join-Path $probeDir "probe.7z") "*"
-          Pop-Location
-          if (-not (Test-Path (Join-Path $probeDir "probe.7z"))) { throw "probe payload not created" }
+            Push-Location $dir
+            & $sevenZip a -t7z -bso0 -bsp0 (Join-Path $dir "p.7z") "*"
+            Pop-Location
 
-          $probeExe = Join-Path $probeDir "sfxprobe.exe"
-          $out = [System.IO.File]::Create($probeExe)
-          try {
-            $b = [System.IO.File]::ReadAllBytes($sfx); $out.Write($b, 0, $b.Length)
-            $in = [System.IO.File]::OpenRead((Join-Path $probeDir "probe.7z"))
-            try { $in.CopyTo($out) } finally { $in.Dispose() }
-          } finally { $out.Dispose() }
-          Write-Host "probe exe: $((Get-Item $probeExe).Length) bytes"
+            $probeExe = Join-Path $dir "probe.exe"
+            $out = [System.IO.File]::Create($probeExe)
+            try {
+              $b = [System.IO.File]::ReadAllBytes($sfx); $out.Write($b, 0, $b.Length)
+              $in = [System.IO.File]::OpenRead((Join-Path $dir "p.7z"))
+              try { $in.CopyTo($out) } finally { $in.Dispose() }
+            } finally { $out.Dispose() }
 
-          $pp = Start-Process -FilePath $probeExe -PassThru
-          $ok = $false
-          for ($i = 0; $i -lt 20 -and -not $ok; $i++) {
-            Start-Sleep -Seconds 1
-            if (Test-Path $marker) { $ok = $true }
+            # 把写标记的动作作为 SFX 的参数传给被执行的程序（cmd.exe 会执行 /c）
+            $proc = Start-Process -FilePath $probeExe -ArgumentList @("/c", "echo ran> `"$marker`"") -PassThru
+            $hit = $false
+            for ($i = 0; $i -lt 12 -and -not $hit; $i++) {
+              Start-Sleep -Seconds 1
+              if (Test-Path $marker) { $hit = $true }
+            }
+            $results[$name] = $hit
+            Write-Host ("entry {0,-12} -> {1}" -f $name, $(if ($hit) { "EXECUTED" } else { "not executed" }))
+            if (-not $proc.HasExited) { $proc | Stop-Process -Force -ErrorAction SilentlyContinue }
           }
-          if (-not $ok) {
-            if ($pp.HasExited) { Write-Host "probe exit code: $($pp.ExitCode)" } else { Write-Host "probe still running" }
-            throw "SFX did not execute run.cmd from the payload root - entry mechanism is broken"
-          }
-          Write-Host "SFX entry mechanism OK: $(Get-Content $marker)"
-          if (-not $pp.HasExited) { $pp | Stop-Process -Force -ErrorAction SilentlyContinue }
+
+          $winners = $results.GetEnumerator() | Where-Object { $_.Value } | Select-Object -ExpandProperty Key
+          if (-not $winners) { throw "none of the candidate entry names were executed by 7zSD.sfx" }
+          Write-Host "working entry names: $($winners -join ', ')"
 
       # 真机冒烟测试：在 Windows runner 上直接跑这个 exe，轮询确认它解压出 app image
       # 探针用 [System.IO.Path]::GetTempPath()，与 SFX 内部 GetTempPathW 完全一致
