@@ -33,13 +33,17 @@ import androidx.compose.ui.input.key.isMetaPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.lumicode.editor.resources.Res
-import com.lumicode.editor.resources.noto_mono_bold
-import com.lumicode.editor.resources.noto_mono_regular
+import com.lumicode.editor.resources.jbmono_bold
+import com.lumicode.editor.resources.jbmono_medium
+import com.lumicode.editor.resources.jbmono_regular
 import com.lumicode.editor.resources.noto_sans_bold
 import com.lumicode.editor.resources.noto_sans_regular
 import com.lumicode.editor.state.IdeState
@@ -58,6 +62,7 @@ import com.lumicode.editor.ui.TopBar
 import com.lumicode.editor.ui.outlineOf
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlFonts
+import com.lumicode.editor.ui.theme.RlSettings
 import kotlinx.coroutines.delay
 import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.ExperimentalResourceApi
@@ -68,15 +73,16 @@ import org.jetbrains.compose.resources.ExperimentalResourceApi
 @OptIn(ExperimentalResourceApi::class)
 @Composable
 private fun InstallArchiveFonts() {
-    // Bundled subsets of Noto Sans CJK (sans + mono) so Chinese and Latin render
-    // identically on every target — the wasm canvas has no system font fallback.
+    // 内置字体：正文用 Noto Sans CJK，代码/标签用 JetBrains Mono（并把 Noto 的中文字形
+    // 合并进同一族，见 tools/build_mono_font.py）。wasm 画布没有系统字体回退，必须自带。
     val sans = FontFamily(
         Font(Res.font.noto_sans_regular, FontWeight.Normal),
         Font(Res.font.noto_sans_bold, FontWeight.Bold),
     )
     val mono = FontFamily(
-        Font(Res.font.noto_mono_regular, FontWeight.Normal),
-        Font(Res.font.noto_mono_bold, FontWeight.Bold),
+        Font(Res.font.jbmono_regular, FontWeight.Normal),
+        Font(Res.font.jbmono_medium, FontWeight.Medium),
+        Font(Res.font.jbmono_bold, FontWeight.Bold),
     )
     SideEffect {
         RlFonts.sans = sans
@@ -97,17 +103,17 @@ fun App(state: IdeState) {
         if (state.runToken == 0) return@LaunchedEffect
         val file = state.activeFile ?: return@LaunchedEffect
         state.outputVisible = true
-        state.statusMessage = "ANALYSIS RUNNING"
-        state.appendTerminal("[RUN] analysis pass · ${file.name}", LineKind.INFO)
+        state.statusMessage = "分析运行中"
+        state.appendTerminal("[运行] 分析流程 · ${file.name}", LineKind.INFO)
         delay(180)
-        state.appendTerminal("      lexing ...................... ok", LineKind.OK)
+        state.appendTerminal("      词法分析 .................... 通过", LineKind.OK)
         delay(160)
         val symbols = outlineOf(state.activeContent).size
-        state.appendTerminal("      symbols ${symbols.toString().padStart(3, '0')} .................. ok", LineKind.OK)
+        state.appendTerminal("      符号 ${symbols.toString().padStart(3, '0')} 个 ................... 通过", LineKind.OK)
         delay(200)
         state.rescanProblems()
         if (state.problems.isEmpty()) {
-            state.appendTerminal("      diagnostics .................. clean", LineKind.OK)
+            state.appendTerminal("      静态检查 .................... 无问题", LineKind.OK)
         } else {
             state.problems.take(3).forEach { problem ->
                 state.appendTerminal(
@@ -117,10 +123,10 @@ fun App(state: IdeState) {
             }
         }
         delay(160)
-        state.appendTerminal("      archive ${file.meta.archiveNo} → readable", LineKind.OK)
-        state.appendTerminal("[DONE] analysis complete · ${state.problems.size} finding(s)", LineKind.INFO)
-        state.statusMessage = "ANALYSIS COMPLETE"
-        state.appendLog("RUN ${file.name}")
+        state.appendTerminal("      档案 ${file.meta.archiveNo} → 可读取", LineKind.OK)
+        state.appendTerminal("[完成] 分析结束 · ${state.problems.size} 个发现", LineKind.INFO)
+        state.statusMessage = "分析完成"
+        state.appendLog("运行 ${file.name}")
     }
 
     Box(
@@ -182,11 +188,20 @@ fun App(state: IdeState) {
                     }
 
                     event.key == Key.Escape -> {
-                        if (state.findVisible) state.findVisible = false else state.statusMessage = "SESSION AUTHORIZED"
+                        state.handleEscape()
                         true
                     }
 
                     else -> false
+                }
+            }
+            .pointerInput(Unit) {
+                // 点击任何位置都把键盘焦点交回外壳，避免「按 ESC / 快捷键没反应」
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        if (event.type == PointerEventType.Press) rootFocus.requestFocus()
+                    }
                 }
             }
             .focusable(),
@@ -203,8 +218,17 @@ fun App(state: IdeState) {
         }
 
         Column(Modifier.fillMaxSize()) {
-            TopBar(state, compact = compact, onReinitialize = { state.softReset() })
-            NavigationRow(state, compact = compact)
+            TopBar(
+                state,
+                compact = compact,
+                onOpenSettings = { state.openOverlay(OverlayMode.SETTINGS) },
+                onOpenOverview = { state.openOverlay(OverlayMode.OVERVIEW) },
+            )
+            NavigationRow(
+                state,
+                compact = compact,
+                onOpenOverview = { state.openOverlay(OverlayMode.OVERVIEW) },
+            )
 
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.explorerVisible && !compact) {
@@ -243,7 +267,7 @@ fun App(state: IdeState) {
                     VerticalHairline()
                     ReferencePanel(state)
                 }
-                if (!compact) TelemetryRail(state, clock, fps)
+                if (!compact && RlSettings.showRail) TelemetryRail(state, clock, fps)
             }
 
             StatusBar(state, clock, compact = compact)
@@ -275,7 +299,7 @@ fun App(state: IdeState) {
             }
         }
 
-        OverlayHost(state, commands)
+        OverlayHost(state, commands, compact)
         }
     }
 

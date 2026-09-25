@@ -15,14 +15,20 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -198,6 +204,35 @@ fun GhostButton(
             Spacer(Modifier.width(8.dp))
             BasicText(glyph, style = RlType.mono.copy(color = if (hovered) RlColors.Ink else RlColors.Muted, fontSize = 11.sp))
         }
+    }
+}
+
+/** 设置齿轮：用 Canvas 画，避免依赖字体里是否含 U+2699。 */
+@Composable
+fun GearIcon(
+    modifier: Modifier = Modifier,
+    size: Dp = 15.dp,
+    color: Color = RlColors.Ink,
+) {
+    Canvas(modifier.size(size)) {
+        val center = Offset(this.size.width / 2f, this.size.height / 2f)
+        val radius = this.size.minDimension / 2f
+        val teeth = 8
+        repeat(teeth) { index ->
+            rotate(index * (360f / teeth), center) {
+                drawRect(
+                    color = color,
+                    topLeft = Offset(center.x - radius * 0.15f, center.y - radius),
+                    size = Size(radius * 0.30f, radius * 0.52f),
+                )
+            }
+        }
+        drawCircle(
+            color = color,
+            radius = radius * 0.60f,
+            center = center,
+            style = Stroke(width = radius * 0.26f),
+        )
     }
 }
 

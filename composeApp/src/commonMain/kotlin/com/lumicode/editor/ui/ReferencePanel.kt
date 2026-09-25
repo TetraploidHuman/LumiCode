@@ -54,22 +54,22 @@ fun ExplorerPanel(state: IdeState, showFooter: Boolean = true, modifier: Modifie
             .padding(start = 22.dp, top = 18.dp, end = 16.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Label("Workspace / 工作区")
+            Label("工作区")
             Spacer(Modifier.width(8.dp))
             Box(Modifier.height(1.dp).weight(1f).background(RlColors.Hair))
         }
         Spacer(Modifier.height(14.dp))
 
         LabelRaw(
-            text = "RHINE-OS",
+            text = "R-OS 工作区",
             style = RlType.title.copy(fontSize = 22.sp, lineHeight = 24.sp),
         )
-        Spacer(Modifier.height(4.dp))
-        Label("Internal database")
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(5.dp))
+        Label("内部数据库")
+        Spacer(Modifier.height(3.dp))
         LabelRaw(
             text = "NO.${state.openTabs.size.toString().padStart(3, '0')}",
-            style = RlType.mono.copy(fontSize = 10.sp, color = RlColors.Faint),
+            style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint),
         )
         Spacer(Modifier.height(22.dp))
 
@@ -84,17 +84,17 @@ fun ExplorerPanel(state: IdeState, showFooter: Boolean = true, modifier: Modifie
         Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
         Spacer(Modifier.height(10.dp))
         GhostButton(
-            text = "Drag to inspect",
+            text = "拖拽查看",
             glyph = "→",
             glyphLeading = false,
-            onClick = { state.statusMessage = "INSPECT MODE" },
+            onClick = { state.statusMessage = "拖拽查看模式" },
         )
         Spacer(Modifier.height(6.dp))
         GhostButton(
-            text = "360° document map",
+            text = "文档结构图",
             glyph = "↗",
             glyphLeading = false,
-            onClick = { state.toggleOverlay(OverlayMode.COMMAND_INDEX) },
+            onClick = { state.openOverlay(OverlayMode.OVERVIEW) },
         )
         Spacer(Modifier.height(14.dp))
     }
@@ -165,8 +165,8 @@ private fun TreeRow(
         Spacer(Modifier.width(7.dp))
         BasicText(
             text = label,
-            style = (if (isFolder) RlType.label(9.sp, if (selected) RlColors.Ink else RlColors.Muted) else RlType.mono.copy(
-                fontSize = 11.sp,
+            style = (if (isFolder) RlType.label(10.sp, if (selected) RlColors.Ink else RlColors.Muted) else RlType.mono.copy(
+                fontSize = 12.sp,
                 color = if (selected) RlColors.Ink else RlColors.InkSoft,
             )),
             maxLines = 1,
@@ -174,7 +174,7 @@ private fun TreeRow(
             modifier = Modifier.weight(1f),
         )
         if (hint != null) {
-            LabelRaw(text = hint, style = RlType.monoMicro)
+            LabelRaw(text = hint, style = RlType.label(9.5.sp, RlColors.Faint))
         }
     }
 }
@@ -199,11 +199,11 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
-                text = "FILE ${file?.meta?.archiveNo ?: "X-000"}",
-                style = RlType.label(8.5.sp, RlColors.Ink),
+                text = "档案 ${file?.meta?.archiveNo ?: "X-000"}",
+                style = RlType.label(10.sp, RlColors.Ink),
             )
             Spacer(Modifier.weight(1f))
-            Label("Reference area")
+            Label("参考区")
         }
         Spacer(Modifier.height(18.dp))
 
@@ -215,7 +215,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                 .verticalScroll(rememberScrollState()),
         ) {
         BasicText(
-            text = file?.name ?: "NO DOCUMENT",
+            text = file?.name ?: "未选择文档",
             style = RlType.pageTitle.copy(fontSize = 28.sp, lineHeight = 30.sp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -223,8 +223,8 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
-                text = if (file != null) file.folder.ifEmpty { "workspace root" } else "—",
-                style = RlType.label(9.sp, RlColors.InkSoft),
+                text = if (file != null) file.folder.ifEmpty { "工作区根目录" } else "—",
+                style = RlType.label(10.sp, RlColors.InkSoft),
             )
             Spacer(Modifier.width(10.dp))
             Label("机构档案")
@@ -234,19 +234,19 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(18.dp))
 
         if (file == null) {
-            Label("No document selected")
+            Label("尚未选择文档")
         } else {
             Row(Modifier.fillMaxWidth()) {
                 MetaColumn(
                     Modifier.weight(1f),
-                    "DEPARTMENT / 科室" to file.meta.departmentCn,
-                    "RELATED / 相关人物" to file.meta.related,
+                    "科室" to file.meta.departmentCn,
+                    "相关人物" to file.meta.related,
                 )
                 Spacer(Modifier.width(18.dp))
                 MetaColumn(
                     Modifier.weight(1f),
-                    "COLLECTION / 编目范围" to file.meta.collectionCn,
-                    "STATUS / 状态" to file.meta.statusCn,
+                    "编目范围" to file.meta.collectionCn,
+                    "状态" to file.meta.statusCn,
                     statusDot = true,
                 )
             }
@@ -254,7 +254,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
 
             // ------------------------------------------------------- tab strip
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                val titles = listOf("01 概述" to "ABSTRACT", "02 结构" to "OUTLINE", "03 日志" to "HISTORY")
+                val titles = listOf("01 概述" to "", "02 结构" to "", "03 日志" to "")
                 titles.forEachIndexed { index, (cn, en) ->
                     val active = index == tab
                     Column(
@@ -265,13 +265,15 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             LabelRaw(
                                 text = cn,
-                                style = RlType.label(9.5.sp, if (active) RlColors.Ink else RlColors.Faint),
+                                style = RlType.label(11.sp, if (active) RlColors.Ink else RlColors.Faint),
                             )
-                            Spacer(Modifier.width(6.dp))
-                            LabelRaw(
-                                text = en,
-                                style = RlType.label(7.5.sp, if (active) RlColors.Muted else RlColors.Faint),
-                            )
+                            if (en.isNotEmpty()) {
+                                Spacer(Modifier.width(6.dp))
+                                LabelRaw(
+                                    text = en,
+                                    style = RlType.label(9.sp, if (active) RlColors.Muted else RlColors.Faint),
+                                )
+                            }
                         }
                         Spacer(Modifier.height(7.dp))
                         Box(
@@ -289,23 +291,23 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
             Column(Modifier.fillMaxWidth()) {
                 when (tab) {
                     0 -> {
-                        Label("Abstract / 摘要")
+                        Label("摘要", style = RlType.label(10.sp, RlColors.Ink))
                         Spacer(Modifier.height(12.dp))
                         BasicText(text = file.meta.abstract, style = RlType.body)
                         Spacer(Modifier.height(18.dp))
                         Row(Modifier.fillMaxWidth()) {
-                            MiniStat("LINES", (state.activeContent.count { it == '\n' } + 1).toString(), Modifier.weight(1f))
-                            MiniStat("CHARS", state.activeContent.length.toString(), Modifier.weight(1f))
-                            MiniStat("LANG", file.language.short, Modifier.weight(1f))
+                            MiniStat("行数", (state.activeContent.count { it == '\n' } + 1).toString(), Modifier.weight(1f))
+                            MiniStat("字符", state.activeContent.length.toString(), Modifier.weight(1f))
+                            MiniStat("语言", file.language.short, Modifier.weight(1f))
                         }
                     }
 
                     1 -> {
-                        Label("Structure / 结构")
+                        Label("结构", style = RlType.label(10.sp, RlColors.Ink))
                         Spacer(Modifier.height(12.dp))
                         val outline = remember(state.activeContent) { outlineOf(state.activeContent) }
                         if (outline.isEmpty()) {
-                            Label("No declarations found", style = RlType.label(9.sp, RlColors.Faint))
+                            Label("未找到声明", style = RlType.label(10.sp, RlColors.Faint))
                         } else {
                             outline.take(18).forEach { (line, text) ->
                                 Row(
@@ -317,12 +319,12 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                                 ) {
                                     LabelRaw(
                                         text = line.toString().padStart(3, '0'),
-                                        style = RlType.monoMicro.copy(color = RlColors.Faint),
+                                        style = RlType.mono.copy(fontSize = 10.5.sp, color = RlColors.Faint),
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     BasicText(
                                         text = text,
-                                        style = RlType.mono.copy(fontSize = 10.5.sp, color = RlColors.InkSoft),
+                                        style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -332,18 +334,18 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                     }
 
                     else -> {
-                        Label("Access log / 访问日志")
+                        Label("访问日志", style = RlType.label(10.sp, RlColors.Ink))
                         Spacer(Modifier.height(12.dp))
                         if (state.log.isEmpty()) {
-                            Label("No entries", style = RlType.label(9.sp, RlColors.Faint))
+                            Label("暂无记录", style = RlType.label(10.sp, RlColors.Faint))
                         } else {
                             state.log.reversed().take(14).forEach { entry ->
                                 Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                                    LabelRaw(text = entry.time, style = RlType.monoMicro.copy(color = RlColors.Faint))
+                                    LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 10.5.sp, color = RlColors.Faint))
                                     Spacer(Modifier.width(10.dp))
                                     BasicText(
                                         text = entry.text,
-                                        style = RlType.mono.copy(fontSize = 10.sp, color = RlColors.InkSoft),
+                                        style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.InkSoft),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -356,15 +358,15 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
 
             Spacer(Modifier.height(18.dp))
             SolidBarButton(
-                text = if (state.isDirty(file.path)) "Save archive" else "Archive saved",
+                text = if (state.isDirty(file.path)) "保存档案" else "档案已保存",
                 trailing = "收藏档案",
                 onClick = { state.save(file.path) },
             )
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Label("Export")
+                Label("导出", style = RlType.label(10.sp, RlColors.Muted))
                 Spacer(Modifier.weight(1f))
-                BasicText("↓", style = RlType.mono.copy(fontSize = 14.sp, color = RlColors.Ink))
+                BasicText("↓", style = RlType.mono.copy(fontSize = 15.sp, color = RlColors.Ink))
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -372,9 +374,9 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
 
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            LabelRaw(text = platformTag(), style = RlType.label(8.sp, RlColors.Faint))
+            LabelRaw(text = platformTag(), style = RlType.label(9.5.sp, RlColors.Faint))
             Spacer(Modifier.weight(1f))
-            LabelRaw(text = "POWERED BY LUMICODE", style = RlType.label(8.5.sp, RlColors.Ink))
+            LabelRaw(text = "由 LUMICODE 驱动", style = RlType.label(10.sp, RlColors.Ink))
             Spacer(Modifier.width(6.dp))
             Box(Modifier.size(width = 26.dp, height = 3.dp).background(RlColors.Ink))
         }
@@ -391,7 +393,7 @@ private fun MetaColumn(
     Column(modifier) {
         entries.forEachIndexed { index, (label, value) ->
             if (index > 0) Spacer(Modifier.height(20.dp))
-            Label(label, style = RlType.label(8.5.sp, RlColors.Muted))
+            Label(label, style = RlType.label(10.sp, RlColors.Muted))
             Spacer(Modifier.height(5.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (statusDot) {
@@ -412,9 +414,9 @@ private fun MetaColumn(
 @Composable
 private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier) {
-        Label(label, style = RlType.label(7.5.sp, RlColors.Faint))
+        Label(label, style = RlType.label(9.5.sp, RlColors.Faint))
         Spacer(Modifier.height(4.dp))
-        BasicText(value, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink))
+        BasicText(value, style = RlType.mono.copy(fontSize = 13.sp, color = RlColors.Ink))
     }
 }
 

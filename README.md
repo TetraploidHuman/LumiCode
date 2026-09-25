@@ -6,6 +6,9 @@
 
 ![桌面端总览](docs/screenshots/01-desktop-overview.png)
 
+> 界面以中文为主（`LUMICODE` / `ANALYSIS OS` / `NO.001` 这类装饰性文字保留英文），
+> 代码与标签使用 **JetBrains Mono**，设置页与工作区总览见下文。
+
 ---
 
 ## 1. 已实现的 IDE 基础功能
@@ -36,7 +39,20 @@
 | `Ctrl/Cmd + W` | 关闭当前文档 |
 | `Ctrl/Cmd + B` / `Ctrl/Cmd + J` | 显示/隐藏资源管理器 / 控制台 |
 | `F5` 或 `Ctrl/Cmd + Enter` | 运行分析 |
-| `Esc` | 关闭浮层 / 查找栏 |
+| `Esc` | 关闭浮层 → 查找栏 → 控制台 → 打开工作区总览 |
+
+### 设置页 / 工作区总览 / 键盘行为
+
+- **设置页**：点右上角 ⚙（或命令面板里的入口）打开，可实时调整
+  代码字号（11–20sp，行高自动跟随）、制表符宽度（2/4/8）、行号、遥测栏、三个面板的显隐，
+  以及「重置工作区 / 运行分析 / 工作区总览」等动作，并显示版本、平台与当前字体。
+- **工作区总览**：点顶部「← 工作区总览」、按 `ESC`、或点 `ESC` 芯片都能打开 —— 档案数/总行数/
+  总字符/未保存统计、文档列表（点击直接打开）、最近操作、快捷键表。
+- **ESC 是分级的**：先关浮层（设置/命令/总览）→ 再关查找栏 → 再关控制台 → 都没有时才打开工作区总览，
+  所以「按 ESC 没反应」的情况不会出现。`ESC` 芯片本身也可点击。
+- **键盘焦点**：点击界面任意位置都会把键盘焦点交回外壳，避免某些情况下快捷键/ESC 失灵（浏览器端尤其明显）。
+- **动效**：光标换行时，当前行高亮带与左侧行号栏的高亮标记会用 140ms 的缓动滑过去；
+  查找跳转 / 大纲跳转用的是平滑滚动。
 
 ### 自适应：桌面宽屏 / 手机窄屏
 
@@ -45,9 +61,15 @@
 
 | 手机窄屏（430×920） | Web (Wasm) |
 | --- | --- |
-| ![紧凑版式](docs/screenshots/08-compact-phone.png) | ![Wasm 端](docs/screenshots/09-web-wasm.png) |
+| ![紧凑版式](docs/screenshots/09-compact-phone.png) | ![Wasm 端](docs/screenshots/08-web-wasm.png) |
 
-更多界面截图见 [`docs/screenshots/`](docs/screenshots)：编辑、命令面板、查找、分析流程、快速打开、JSON 文档。
+更多界面截图见 [`docs/screenshots/`](docs/screenshots)：
+[编辑](docs/screenshots/02-editing.png) ·
+[命令面板](docs/screenshots/03-command-index.png) ·
+[文档内查找](docs/screenshots/04-find-in-document.png) ·
+[分析流程](docs/screenshots/05-analysis-pass.png) ·
+[设置页](docs/screenshots/06-settings.png) ·
+[工作区总览](docs/screenshots/07-workspace-overview.png)。
 
 ---
 
@@ -173,12 +195,15 @@ tools/build_font_subset.py          # 重新生成字体子集
 - **虚拟文件系统**：演示工作区写在内存里（`SampleWorkspace`），因此 Wasm 端也能编辑、保存、新建文件；
   若要接真实磁盘，只需在 `desktopMain` 里替换 `IdeState` 的读写实现。
 - **字体（重要）**：Wasm 端的 Skia 画布**没有系统字体回退**，直接用系统字族时中文会变成豆腐块。
-  因此仓库内置了 `commonMain/composeResources/font/` 下的 4 个字体子集（Noto Sans CJK 与
-  Noto Sans Mono CJK 的 SC 字形，400/700 两个字重，各约 140KB），由 `App.kt` 的
-  `InstallArchiveFonts()` 在运行时装载进 `RlFonts`，四端字形完全一致。
-  - 子集只包含源码里出现过的字符 + ASCII + 常用中文标点；若要在编辑器里输入子集外的汉字，
-    运行 `python3 tools/build_font_subset.py --sans <NotoSansCJK-VF.otf.ttc> --mono <NotoSansMonoCJK-VF.otf.ttc>`
-    重新生成（或直接放入完整字体）即可。
+  因此仓库内置了 `commonMain/composeResources/font/` 下的字体文件，由 `App.kt` 的
+  `InstallArchiveFonts()` 在运行时装载进 `RlFonts`，四端字形完全一致：
+  - 代码 / 标签：**JetBrains Mono**（IDEA 默认编程字体）Regular/Medium/Bold，并把 Noto Sans Mono CJK
+    的中文字形**合并进同一字族**（`tools/build_mono_font.py`），这样代码是 JBM，中文也不会掉字形。
+    Merger 冲突时保留先合并的字体，所以脚本把 JBM 放在前面、CJK 子集放后面；合并前会剥掉
+    可变字体残留与 GPOS/GDEF（等宽字体不需要字距调整，GSUB 保留以维持编程连字）。
+  - 界面正文 / 标题：Noto Sans CJK SC 子集（`tools/build_font_subset.py`）。
+  - 子集只包含源码里出现过的字符 + ASCII + 常用中文标点（当前 559 个码位）；若要在编辑器里
+    输入子集外的汉字，重跑上面两个脚本（或直接放入完整字体）即可。
   - 字体许可（SIL OFL 1.1）与其它依赖的许可见 [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)。
 - **排版令牌**：字号/字距/行高集中在 `RlType`，颜色集中在 `RlColors`，均为 `get()` 访问器，
   因此换字体后无需重启即可整体刷新。

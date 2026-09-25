@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
@@ -39,6 +40,21 @@ object RlColors {
     val CodeAnnotation = Color(0xFF7A6A4C)
     val CodeFunction = Color(0xFF2F3A44)
     val CodePunct = Color(0xFF6E6E67)
+}
+
+/**
+ * 用户可在设置页调整的项。用 Compose state 保存，改完立刻全局生效。
+ */
+object RlSettings {
+    /** 代码字号（sp），行高按它推算，保证行号与代码对齐。 */
+    var codeFontSize by mutableStateOf(13f)
+    var tabWidth by mutableStateOf(4)
+    var showLineNumbers by mutableStateOf(true)
+    var showRail by mutableStateOf(true)
+
+    val codeLineHeight: Dp get() = (codeFontSize + 8f).dp
+
+    fun lineHeightSp(): Float = codeFontSize + 8f
 }
 
 /**
@@ -101,7 +117,7 @@ object RlType {
     )
 
     /** Micro label: uppercase, wide tracking, monospace — used everywhere as chrome. */
-    fun label(size: TextUnit = 9.sp, color: Color = RlColors.Muted) = TextStyle(
+    fun label(size: TextUnit = 10.sp, color: Color = RlColors.Muted) = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Medium,
         fontSize = size,
@@ -122,8 +138,8 @@ object RlType {
     val mono: TextStyle get() = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
-        fontSize = 11.sp,
-        lineHeight = 16.sp,
+        fontSize = 12.sp,
+        lineHeight = 17.sp,
         letterSpacing = 0.02.em,
         color = RlColors.InkSoft,
     )
@@ -131,17 +147,17 @@ object RlType {
     val monoMicro: TextStyle get() = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
-        fontSize = 8.5.sp,
-        lineHeight = 11.sp,
-        letterSpacing = 0.06.em,
+        fontSize = 10.sp,
+        lineHeight = 13.sp,
+        letterSpacing = 0.04.em,
         color = RlColors.Faint,
     )
 
     val code: TextStyle get() = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
-        lineHeight = 21.sp,
+        fontSize = RlSettings.codeFontSize.sp,
+        lineHeight = RlSettings.lineHeightSp().sp,
         letterSpacing = 0.0.em,
         color = RlColors.CodeDefault,
     )
@@ -149,9 +165,9 @@ object RlType {
     val codeGutter: TextStyle get() = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
-        fontSize = 10.sp,
-        lineHeight = 21.sp,
-        letterSpacing = 0.04.em,
+        fontSize = (RlSettings.codeFontSize - 1.5f).sp,
+        lineHeight = RlSettings.lineHeightSp().sp,
+        letterSpacing = 0.02.em,
         color = RlColors.Faint,
     )
 }
@@ -161,10 +177,10 @@ object RlDimens {
     val gutterWidth = 56.dp
     val explorerWidth = 236.dp
     val referenceWidth = 320.dp
-    val railWidth = 104.dp
+    val railWidth = 116.dp
     val topBarHeight = 56.dp
     val statusBarHeight = 26.dp
-    val codeLineHeight = 21.dp
+    // 代码行高由 RlSettings.codeLineHeight 动态给出
     val codePaddingStart = 14.dp
     val codePaddingTop = 12.dp
 }

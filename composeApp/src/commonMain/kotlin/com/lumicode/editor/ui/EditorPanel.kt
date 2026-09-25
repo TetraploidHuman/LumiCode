@@ -141,7 +141,7 @@ private fun TabStrip(state: IdeState, compact: Boolean) {
                     BasicText(
                         text = name,
                         style = RlType.mono.copy(
-                            fontSize = 11.sp,
+                            fontSize = 12.sp,
                             color = when {
                                 active -> RlColors.Ink
                                 hovered -> RlColors.InkSoft
@@ -164,7 +164,7 @@ private fun TabStrip(state: IdeState, compact: Boolean) {
                         LabelRaw(
                             text = "×",
                             style = RlType.mono.copy(
-                                fontSize = 11.sp,
+                                fontSize = 12.sp,
                                 color = if (active) RlColors.Muted else RlColors.Faint,
                             ),
                         )
@@ -180,31 +180,31 @@ private fun TabStrip(state: IdeState, compact: Boolean) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 12.dp)) {
             GhostButton(
-                text = if (compact) "" else "Files",
+                text = if (compact) "" else "文件",
                 glyph = "▤",
                 onClick = { state.explorerVisible = !state.explorerVisible },
             )
             HGap(if (compact) 8.dp else 14.dp)
             GhostButton(
-                text = if (compact) "" else "Refs",
+                text = if (compact) "" else "参考",
                 glyph = "▥",
                 onClick = { state.referenceVisible = !state.referenceVisible },
             )
             HGap(if (compact) 8.dp else 14.dp)
-            GhostButton(text = if (compact) "" else "New", glyph = "+", onClick = { state.newFile() })
+            GhostButton(text = if (compact) "" else "新建", glyph = "+", onClick = { state.newFile() })
             HGap(if (compact) 8.dp else 14.dp)
             GhostButton(
                 text = when {
                     compact -> ""
-                    state.outputVisible -> "Hide console"
-                    else -> "Console"
+                    state.outputVisible -> "隐藏控制台"
+                    else -> "控制台"
                 },
                 glyph = "≡",
                 onClick = { state.outputVisible = !state.outputVisible },
             )
             if (!compact) {
                 HGap(14.dp)
-                Chip(text = "esc")
+                Chip(text = "ESC")
             }
         }
     }
@@ -217,19 +217,19 @@ private fun Breadcrumb(state: IdeState) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(30.dp)
+            .height(32.dp)
             .background(RlColors.Panel)
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LabelRaw(text = "←", style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Muted))
+        LabelRaw(text = "←", style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Muted))
         HGap(10.dp)
         parts.forEachIndexed { index, part ->
             val last = index == parts.lastIndex
             LabelRaw(
                 text = if (last) part else "$part /",
                 style = RlType.mono.copy(
-                    fontSize = 10.sp,
+                    fontSize = 11.5.sp,
                     color = if (last) RlColors.Ink else RlColors.Faint,
                 ),
             )
@@ -239,17 +239,17 @@ private fun Breadcrumb(state: IdeState) {
         val file = state.activeFile
         if (file != null) {
             LabelRaw(
-                text = "NO.${file.meta.archiveNo}",
-                style = RlType.label(8.sp, RlColors.Muted),
+                text = "档案 ${file.meta.archiveNo}",
+                style = RlType.label(10.sp, RlColors.Muted),
             )
             HGap(14.dp)
             LabelRaw(
-                text = file.language.label.uppercase(),
-                style = RlType.label(8.sp, RlColors.Faint),
+                text = file.language.label,
+                style = RlType.label(10.sp, RlColors.Faint),
             )
             HGap(14.dp)
         }
-        LabelRaw(text = "UTF-8 · LF", style = RlType.label(8.sp, RlColors.Faint))
+        LabelRaw(text = "UTF-8 · LF", style = RlType.label(10.sp, RlColors.Faint))
     }
 }
 
@@ -268,7 +268,7 @@ private fun FindBar(state: IdeState, compact: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (!compact) {
-            Label("Find / 查找")
+            Label("查找")
             HGap(14.dp)
         }
         BasicTextField(
@@ -278,7 +278,7 @@ private fun FindBar(state: IdeState, compact: Boolean) {
                 state.findActiveMatch = 0
             },
             singleLine = true,
-            textStyle = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Ink),
+            textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink),
             cursorBrush = SolidColor(RlColors.Ink),
             modifier = Modifier
                 .then(if (compact) Modifier.weight(1f) else Modifier.width(240.dp))
@@ -308,16 +308,16 @@ private fun FindBar(state: IdeState, compact: Boolean) {
         HGap(14.dp)
         LabelRaw(
             text = if (matches == 0) "000 / 000" else "${(state.findActiveMatch + 1).toString().padStart(3, '0')} / ${matches.toString().padStart(3, '0')}",
-            style = RlType.monoMicro.copy(color = if (matches == 0) RlColors.Faint else RlColors.Ink),
+            style = RlType.mono.copy(fontSize = 11.5.sp, color = if (matches == 0) RlColors.Faint else RlColors.Ink),
         )
         if (!compact) Spacer(Modifier.weight(1f))
         HGap(12.dp)
-        GhostButton(text = if (compact) "" else "Next", glyph = "→", glyphLeading = false, onClick = {
+        GhostButton(text = if (compact) "" else "下一个", glyph = "→", glyphLeading = false, onClick = {
             if (matches > 0) state.findActiveMatch = (state.findActiveMatch + 1) % matches
         })
         HGap(if (compact) 8.dp else 16.dp)
         GhostButton(
-            text = if (compact) "" else "Close",
+            text = if (compact) "" else "关闭",
             glyph = "×",
             glyphLeading = false,
             onClick = { state.findVisible = false },
@@ -329,7 +329,7 @@ private fun FindBar(state: IdeState, compact: Boolean) {
 private fun EmptyDocument() {
     Box(Modifier.fillMaxSize().background(RlColors.Panel), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Label("No document open")
+            Label("未打开任何文档")
             Spacer(Modifier.height(8.dp))
             LabelRaw(text = "NO.000", style = RlType.title.copy(fontSize = 40.sp, color = RlColors.Hair))
         }
@@ -356,34 +356,34 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
                 .padding(horizontal = 12.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LabelRaw(text = "▶", style = RlType.mono.copy(fontSize = 9.sp, color = Color.White))
+            LabelRaw(text = "▶", style = RlType.mono.copy(fontSize = 11.sp, color = Color.White))
             HGap(9.dp)
-            LabelRaw(text = "RUN ANALYSIS", style = RlType.label(8.5.sp, Color.White))
+            LabelRaw(text = "运行分析", style = RlType.label(10.sp, Color.White))
             HGap(16.dp)
-            LabelRaw(text = "F5", style = RlType.label(8.sp, Color(0xFFB9B9B3)))
+            LabelRaw(text = "F5", style = RlType.label(10.sp, Color(0xFFB9B9B3)))
         }
         HGap(if (compact) 10.dp else 16.dp)
-        GhostButton(text = if (compact) "" else "Save", glyph = "⌘S", glyphLeading = false, onClick = {
+        GhostButton(text = if (compact) "" else "保存", glyph = "⌘S", glyphLeading = false, onClick = {
             state.activePath?.let { state.save(it) }
         })
         HGap(if (compact) 10.dp else 16.dp)
-        GhostButton(text = if (compact) "" else "Find", glyph = "⌘F", glyphLeading = false, onClick = {
+        GhostButton(text = if (compact) "" else "查找", glyph = "⌘F", glyphLeading = false, onClick = {
             state.findVisible = !state.findVisible
         })
         if (!compact) {
             HGap(16.dp)
-            GhostButton(text = "Command index", glyph = "⌘K", glyphLeading = false, onClick = {
+            GhostButton(text = "命令面板", glyph = "⌘K", glyphLeading = false, onClick = {
                 state.toggleOverlay(OverlayMode.COMMAND_INDEX)
             })
         }
         Spacer(Modifier.weight(1f))
-        val stats = "LNF ${state.cursorLine.toString().padStart(3, '0')} : COL ${state.cursorColumn.toString().padStart(3, '0')}"
-        LabelRaw(text = stats, style = RlType.label(8.5.sp, RlColors.Muted))
+        val stats = "行 ${state.cursorLine}  列 ${state.cursorColumn}"
+        LabelRaw(text = stats, style = RlType.label(10.sp, RlColors.Muted))
         if (!compact) {
             HGap(18.dp)
             LabelRaw(
-                text = "${state.activeContent.length.toString().padStart(5, '0')} CHARS",
-                style = RlType.label(8.5.sp, RlColors.Faint),
+                text = "${state.activeContent.length} 字符",
+                style = RlType.label(10.sp, RlColors.Faint),
             )
         }
     }
@@ -409,15 +409,15 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             listOf(
-                "01 TERMINAL" to 0,
-                "02 PROBLEMS" to 1,
-                "03 ACCESS LOG" to 2,
+                "01 终端" to 0,
+                "02 问题" to 1,
+                "03 访问日志" to 2,
             ).forEach { (title, index) ->
                 val active = tab == index
                 Column(Modifier.clickable { tab = index }.padding(end = 20.dp)) {
                     LabelRaw(
                         text = title,
-                        style = RlType.label(9.sp, if (active) RlColors.Ink else RlColors.Faint),
+                        style = RlType.label(10.sp, if (active) RlColors.Ink else RlColors.Faint),
                     )
                     Spacer(Modifier.height(6.dp))
                     Box(
@@ -434,9 +434,9 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                 1 -> state.problems.size
                 else -> state.log.size
             }
-            LabelRaw(text = count.toString().padStart(3, '0'), style = RlType.label(8.5.sp, RlColors.Muted))
+            LabelRaw(text = count.toString().padStart(3, '0'), style = RlType.label(10.sp, RlColors.Muted))
             HGap(16.dp)
-            GhostButton(text = "Hide", glyph = "×", glyphLeading = false, onClick = { state.outputVisible = false })
+            GhostButton(text = "隐藏", glyph = "×", glyphLeading = false, onClick = { state.outputVisible = false })
         }
         Rule()
         Column(
@@ -448,12 +448,12 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             when (tab) {
                 0 -> state.terminal.takeLast(9).forEach { line ->
                     Row(Modifier.fillMaxWidth()) {
-                        LabelRaw(text = line.time, style = RlType.monoMicro.copy(color = RlColors.Faint))
+                        LabelRaw(text = line.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
                         HGap(12.dp)
                         BasicText(
                             text = line.text,
                             style = RlType.mono.copy(
-                                fontSize = 10.5.sp,
+                                fontSize = 11.5.sp,
                                 color = when (line.kind) {
                                     LineKind.OK -> RlColors.CodeString
                                     LineKind.WARN -> RlColors.CodeAnnotation
@@ -469,7 +469,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                 }
 
                 1 -> if (state.problems.isEmpty()) {
-                    Label("No findings · document clean", style = RlType.label(9.sp, RlColors.Faint))
+                    Label("未发现问题 · 文档状态良好", style = RlType.label(10.sp, RlColors.Faint))
                 } else {
                     state.problems.take(7).forEach { problem ->
                         Row(
@@ -488,17 +488,17 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                             HGap(10.dp)
                             LabelRaw(
                                 text = problem.path.substringAfterLast('/'),
-                                style = RlType.mono.copy(fontSize = 10.5.sp, color = RlColors.InkSoft),
+                                style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft),
                             )
                             HGap(10.dp)
                             LabelRaw(
                                 text = "${problem.line}:${problem.column}",
-                                style = RlType.monoMicro.copy(color = RlColors.Muted),
+                                style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Muted),
                             )
                             HGap(12.dp)
                             LabelRaw(
                                 text = problem.message,
-                                style = RlType.mono.copy(fontSize = 10.5.sp, color = RlColors.Muted),
+                                style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.Muted),
                             )
                         }
                     }
@@ -506,9 +506,9 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
 
                 else -> state.log.takeLast(8).forEach { entry ->
                     Row(Modifier.fillMaxWidth()) {
-                        LabelRaw(text = entry.time, style = RlType.monoMicro.copy(color = RlColors.Faint))
+                        LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
                         HGap(12.dp)
-                        LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 10.5.sp, color = RlColors.InkSoft))
+                        LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft))
                     }
                 }
             }

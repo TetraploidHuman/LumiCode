@@ -11,7 +11,7 @@ import com.lumicode.editor.model.buildTree
 import com.lumicode.editor.platform.clockLabel
 import com.lumicode.editor.platform.platformLabel
 
-enum class OverlayMode { NONE, COMMAND_INDEX, QUICK_OPEN }
+enum class OverlayMode { NONE, COMMAND_INDEX, QUICK_OPEN, SETTINGS, OVERVIEW }
 
 enum class LineKind { INFO, OK, WARN, ERROR, MUTED }
 
@@ -62,7 +62,7 @@ class IdeState(initialFiles: List<CodeFile>) {
 
     var savedCount by mutableStateOf(0)
     var runToken by mutableStateOf(0)
-    var statusMessage by mutableStateOf("SESSION AUTHORIZED")
+    var statusMessage by mutableStateOf("会话已授权")
 
     var pendingRevealLine by mutableStateOf<Int?>(null)
 
@@ -74,10 +74,10 @@ class IdeState(initialFiles: List<CodeFile>) {
             contents[it.path] = it.content
             savedSnapshot[it.path] = it.content
         }
-        appendTerminal("[00] mount /dev/archive .................. ok", LineKind.OK)
-        appendTerminal("[01] signature verified .................. ok", LineKind.OK)
-        appendTerminal("[02] session authorized · ${platformLabel()}", LineKind.INFO)
-        appendLog("WORKSPACE MOUNTED")
+        appendTerminal("[00] 挂载 /dev/archive ................. 通过", LineKind.OK)
+        appendTerminal("[01] 签名校验 ......................... 通过", LineKind.OK)
+        appendTerminal("[02] 会话已授权 · ${platformLabel()}", LineKind.INFO)
+        appendLog("工作区已挂载")
         open("src/Main.kt")
         rescanProblems()
     }
@@ -110,7 +110,7 @@ class IdeState(initialFiles: List<CodeFile>) {
         findActiveMatch = 0
         cursorLine = revealLine ?: 1
         cursorColumn = 1
-        appendLog("OPEN ${path.substringAfterLast('/')}")
+        appendLog("打开 ${path.substringAfterLast('/')}")
         if (overlay != OverlayMode.NONE) overlay = OverlayMode.NONE
     }
 
@@ -121,7 +121,7 @@ class IdeState(initialFiles: List<CodeFile>) {
         if (activePath == path) {
             activePath = openTabs.getOrNull((index - 1).coerceAtLeast(0))
         }
-        appendLog("CLOSE ${path.substringAfterLast('/')}")
+        appendLog("关闭 ${path.substringAfterLast('/')}")
     }
 
     fun cycleTab(step: Int) {
@@ -133,7 +133,7 @@ class IdeState(initialFiles: List<CodeFile>) {
 
     fun updateContent(path: String, text: String) {
         contents[path] = text
-        if (activePath == path && !isDirty(path)) statusMessage = "MODIFIED"
+        if (activePath == path && !isDirty(path)) statusMessage = "已修改"
     }
 
     /** Cursor offset of the active document, owned by the editor composable. */
@@ -168,17 +168,17 @@ class IdeState(initialFiles: List<CodeFile>) {
         savedSnapshot[path] = ""
         tree = buildTree(catalogue.values.toList())
         open(path)
-        appendTerminal("[++] created $path", LineKind.INFO)
-        appendLog("NEW FILE ${path.substringAfterLast('/')}")
+        appendTerminal("[++] 已创建 $path", LineKind.INFO)
+        appendLog("新建 ${path.substringAfterLast('/')}")
     }
 
     fun save(path: String? = activePath) {
         val target = path ?: return
         savedSnapshot[target] = contentOf(target)
         savedCount++
-        statusMessage = "ARCHIVE WRITTEN"
-        appendTerminal("[${savedCount.toString().padStart(2, '0')}] write ${target.substringAfterLast('/')} ...... ok", LineKind.OK)
-        appendLog("SAVE ${target.substringAfterLast('/')}")
+        statusMessage = "档案已写入"
+        appendTerminal("[${savedCount.toString().padStart(2, '0')}] 写入 ${target.substringAfterLast('/')} ......... 通过", LineKind.OK)
+        appendLog("保存 ${target.substringAfterLast('/')}")
     }
 
     fun requestRun() {
@@ -197,15 +197,15 @@ class IdeState(initialFiles: List<CodeFile>) {
         text.split('\n').forEachIndexed { index, line ->
             val todo = TODO_REGEX.find(line)
             if (todo != null) {
-                found += Problem(path, index + 1, todo.range.first + 1, "${todo.groupValues[1]} marker pending review", LineKind.WARN)
+                found += Problem(path, index + 1, todo.range.first + 1, "${todo.groupValues[1]} 标记待处理", LineKind.WARN)
             }
             if (line.length > 100) {
-                found += Problem(path, index + 1, 101, "line exceeds 100 columns", LineKind.INFO)
+                found += Problem(path, index + 1, 101, "该行超过 100 列", LineKind.INFO)
             }
         }
         val balance = text.count { it == '{' } - text.count { it == '}' }
         if (balance != 0) {
-            found += Problem(path, 1, 1, "brace imbalance: ${if (balance > 0) "$balance unclosed" else "${-balance} extra"}", LineKind.ERROR)
+            found += Problem(path, 1, 1, "花括号不匹配：${if (balance > 0) "缺 $balance 个 }" else "多 ${-balance} 个 }"}", LineKind.ERROR)
         }
         problems = found
     }
@@ -239,15 +239,29 @@ class IdeState(initialFiles: List<CodeFile>) {
         problems = emptyList()
         savedCount = 0
         untitledCounter = 0
-        statusMessage = "SESSION AUTHORIZED"
-        appendTerminal("[00] reinitialize ..................... ok", LineKind.OK)
-        appendLog("REINITIALIZE")
+        statusMessage = "会话已授权"
+        appendTerminal("[00] 重置会话 ......................... 通过", LineKind.OK)
+        appendLog("重置会话")
         open("src/Main.kt")
     }
 
     fun toggleOverlay(mode: OverlayMode) {
         overlay = if (overlay == mode) OverlayMode.NONE else mode
         overlayQuery = ""
+    }
+
+    fun openOverlay(mode: OverlayMode) {
+        overlay = mode
+        overlayQuery = ""
+    }
+
+    /** ESC 的分级行为：关浮层 → 关查找 → 关控制台 → 打开工作区总览。 */
+    fun handleEscape() {
+        when {
+            overlay != OverlayMode.NONE -> overlay = OverlayMode.NONE
+            findVisible -> findVisible = false
+            else -> openOverlay(OverlayMode.OVERVIEW)
+        }
     }
 
     fun quickOpenTargets(): List<String> = contents.keys.sorted()

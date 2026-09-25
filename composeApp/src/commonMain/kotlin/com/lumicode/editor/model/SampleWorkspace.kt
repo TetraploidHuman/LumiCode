@@ -48,14 +48,16 @@ object SampleWorkspace {
                 import com.lumicode.editor.App
 
                 /**
-                 * LUMICODE ANALYSIS OS — entry point.
-                 * Archive NO.001 / internal database.
+                 * LUMICODE ANALYSIS OS — 工作区入口。
+                 * 档案 NO.001 / 内部数据库。
+                 * 负责装配窗口、主题与全局快捷键。
                  */
                 fun main() {
                     val state = rememberIdeState(files = SampleWorkspace.files)
                     App(state)
                 }
 
+                // 启动序列：挂载 → 校验 → 授权
                 private fun bootSequence(): List<String> = listOf(
                     "mount /dev/archive",
                     "verify signature",
@@ -84,7 +86,7 @@ object SampleWorkspace {
             content = """
                 package lumicode.core
 
-                /** Access level of a single archive entry. */
+                /** 单个档案条目的访问级别。 */
                 enum class Clearance(val level: Int, val label: String) {
                     PUBLIC(0, "public"),
                     LAB(1, "laboratory"),
@@ -111,7 +113,7 @@ object SampleWorkspace {
                     }
                 }
 
-                // TODO: move signature verification into its own module
+                // TODO: 把签名校验拆到独立模块
                 fun verify(entry: ArchiveEntry, token: Token): Boolean {
                     if (!entry.readableBy(token)) return false
                     return entry.no.startsWith("X-")
@@ -142,7 +144,7 @@ object SampleWorkspace {
                 import androidx.compose.runtime.Composable
                 import androidx.compose.ui.Modifier
 
-                /** The paper substrate every panel floats on. */
+                /** 所有面板悬浮其上的纸张底色。 */
                 @Composable
                 fun Viewport(
                     grid: Grid = Grid.Archive,
@@ -162,7 +164,7 @@ object SampleWorkspace {
                     Compact(6, 16),
                 }
 
-                /* FIXME: hairline rules should snap to device pixels */
+                /* FIXME: 细线应该对齐到物理像素 */
                 fun Modifier.hairline(): Modifier = this.background(Paper.rule)
             """.trimIndent(),
         ),
@@ -180,7 +182,7 @@ object SampleWorkspace {
             content = """
                 # LUMICODE — ANALYSIS OS
 
-                > Archive-style code editor. Paper, hairlines, micro-labels.
+                > 档案风格的代码编辑器：纸底、细线、微缩标签。
 
                 ## Shortcuts
 
@@ -200,7 +202,7 @@ object SampleWorkspace {
                 2. Every panel is bounded by a single hairline.
                 3. Chroma is a last resort.
 
-                <!-- TODO: document the wasm build pipeline -->
+                <!-- TODO: 补充 Wasm 构建流程说明 -->
             """.trimIndent(),
         ),
         CodeFile(

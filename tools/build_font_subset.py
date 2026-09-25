@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Regenerate the bundled font subsets used by LUMICODE.
+"""Regenerate the bundled UI (sans) subsets used by LUMICODE.
 
-The editor ships four small OpenType subsets so that Latin *and* Chinese glyphs look
-identical on Android, desktop and WebAssembly.  WebAssembly needs them because Skiko's
-canvas has no system font fallback there.
+界面字族是 Noto Sans CJK SC 的子集（标题 / 正文 / 中文说明）。
+代码与标签用的等宽字族由 tools/build_mono_font.py 生成（JetBrains Mono + 中文字形合并）。
+
+WebAssembly 没有系统字体回退，所以这些字形必须内置。
 
 Requires fontTools (`pip install fonttools` / `nix-shell -p python3Packages.fonttools`)
 and a copy of the variable Noto Sans CJK collections, e.g. from
@@ -30,7 +31,7 @@ from fontTools.ttLib import TTFont
 from fontTools.varLib.instancer import instantiateVariableFont
 
 EXTRA_PUNCTUATION = "、。，·—“”‘’《》〈〉！？：；（）【】…※→←↑↓↗↙■□●○◆◇◎≡"
-FACES = ("sans", "mono")
+FACES = ("sans",)
 WEIGHTS = ((400, "regular"), (700, "bold"))
 
 
@@ -88,7 +89,6 @@ def build(source: str, weight: int, out_path: str, codepoints: list[int]) -> Non
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sans", required=True, help="NotoSansCJK-VF.otf.ttc")
-    parser.add_argument("--mono", required=True, help="NotoSansMonoCJK-VF.otf.ttc")
     parser.add_argument("--src", default="composeApp/src", help="directory scanned for characters")
     parser.add_argument(
         "--out",
@@ -100,18 +100,16 @@ def main() -> None:
     codepoints = collect_characters(args.src)
     print(f"{len(codepoints)} codepoints collected from {args.src}")
 
-    for face, path in (("sans", args.sans), ("mono", args.mono)):
-        font = find_sc_face(path)
-        missing = [chr(cp) for cp in codepoints if cp not in font.getBestCmap()]
-        font.close()
-        if missing:
-            print(f"missing glyphs in {face}: {' '.join(missing)}", file=sys.stderr)
-            raise SystemExit(1)
+    font = find_sc_face(args.sans)
+    missing = [chr(cp) for cp in codepoints if cp not in font.getBestCmap()]
+    font.close()
+    if missing:
+        print(f"missing glyphs: {' '.join(missing)}", file=sys.stderr)
+        raise SystemExit(1)
 
     os.makedirs(args.out, exist_ok=True)
     for weight, label in WEIGHTS:
         build(args.sans, weight, os.path.join(args.out, f"noto_sans_{label}.otf"), codepoints)
-        build(args.mono, weight, os.path.join(args.out, f"noto_mono_{label}.otf"), codepoints)
 
 
 if __name__ == "__main__":

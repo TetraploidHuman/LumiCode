@@ -2,7 +2,7 @@ package com.lumicode.editor.state
 
 import com.lumicode.editor.model.Language
 
-/** One entry of the COMMAND INDEX (Ctrl/Cmd+K). */
+/** 命令面板的一个条目：title 是中文主标题，chinese 字段保留英文副标题。 */
 data class IdeCommand(
     val id: String,
     val title: String,
@@ -16,51 +16,51 @@ fun defaultCommands(
     state: IdeState,
     onRun: () -> Unit,
 ): List<IdeCommand> = listOf(
-    IdeCommand("save", "Save archive", "写入档案", "Ctrl S", "01 / FILE") { state.save() },
-    IdeCommand("new", "New archive entry", "新建文件", "Ctrl N", "01 / FILE") { state.newFile() },
-    IdeCommand("close", "Close active document", "关闭当前文件", "Ctrl W", "01 / FILE") {
+    IdeCommand("save", "保存档案", "SAVE ARCHIVE", "Ctrl S", "01 / 文件") { state.save() },
+    IdeCommand("new", "新建文件", "NEW FILE", "Ctrl N", "01 / 文件") { state.newFile() },
+    IdeCommand("close", "关闭当前文档", "CLOSE DOCUMENT", "Ctrl W", "01 / 文件") {
         state.activePath?.let { state.close(it) }
     },
-    IdeCommand("quick", "Quick open document", "快速打开", "Ctrl P", "01 / FILE") {
+    IdeCommand("quick", "快速打开文档", "QUICK OPEN", "Ctrl P", "01 / 文件") {
         state.toggleOverlay(OverlayMode.QUICK_OPEN)
     },
-    IdeCommand("find", "Find in document", "文档内查找", "Ctrl F", "02 / SEARCH") {
+    IdeCommand("find", "文档内查找", "FIND IN DOCUMENT", "Ctrl F", "02 / 查找") {
         state.findVisible = !state.findVisible
         state.findActiveMatch = 0
     },
-    IdeCommand("explorer", "Toggle explorer", "切换资源管理器", "Ctrl B", "03 / LAYOUT") {
+    IdeCommand("explorer", "显示/隐藏资源管理器", "TOGGLE EXPLORER", "Ctrl B", "03 / 版面") {
         state.explorerVisible = !state.explorerVisible
     },
-    IdeCommand("reference", "Toggle reference area", "切换参考区", "Ctrl R", "03 / LAYOUT") {
+    IdeCommand("reference", "显示/隐藏参考区", "TOGGLE REFERENCE", "Ctrl R", "03 / 版面") {
         state.referenceVisible = !state.referenceVisible
     },
-    IdeCommand("console", "Toggle analysis console", "切换控制台", "Ctrl J", "03 / LAYOUT") {
+    IdeCommand("console", "显示/隐藏分析控制台", "TOGGLE CONSOLE", "Ctrl J", "03 / 版面") {
         state.outputVisible = !state.outputVisible
     },
-    IdeCommand("run", "Run analysis pass", "运行分析", "F5", "04 / RUN") { onRun() },
-    IdeCommand("export", "Export archive bundle", "导出档案", "Ctrl E", "04 / RUN") {
-        state.appendTerminal("[EXPORT] packaging 6 entries → archive-16.bundle", LineKind.INFO)
-        state.appendTerminal("[EXPORT] signature 0xB4·19·F2 ........ ok", LineKind.OK)
-        state.statusMessage = "ARCHIVE EXPORTED"
-        state.appendLog("EXPORT BUNDLE")
+    IdeCommand("run", "运行分析", "RUN ANALYSIS", "F5", "04 / 运行") { onRun() },
+    IdeCommand("export", "导出档案包", "EXPORT BUNDLE", "Ctrl E", "04 / 运行") {
+        state.appendTerminal("[导出] 打包 6 个条目 → archive-16.bundle", LineKind.INFO)
+        state.appendTerminal("[导出] 签名 0xB4·19·F2 ................ 通过", LineKind.OK)
+        state.statusMessage = "档案已导出"
+        state.appendLog("导出档案包")
     },
-    IdeCommand("next", "Next document", "下一个文件", "Ctrl Tab", "05 / NAVIGATE") { state.cycleTab(1) },
-    IdeCommand("prev", "Previous document", "上一个文件", "Ctrl ⇧ Tab", "05 / NAVIGATE") { state.cycleTab(-1) },
-    IdeCommand("language", "Re-classify language", "重新识别语言", "-", "05 / NAVIGATE") {
+    IdeCommand("next", "下一个文档", "NEXT DOCUMENT", "Ctrl Tab", "05 / 导航") { state.cycleTab(1) },
+    IdeCommand("prev", "上一个文档", "PREVIOUS DOCUMENT", "Ctrl ⇧ Tab", "05 / 导航") { state.cycleTab(-1) },
+    IdeCommand("language", "重新识别语言", "RE-CLASSIFY", "-", "05 / 导航") {
         val file = state.activeFile
         if (file != null) {
             val lang: Language = file.language
-            state.appendTerminal("[LANG] ${file.name} → ${lang.label}", LineKind.INFO)
-            state.appendLog("LANG ${lang.short}")
+            state.appendTerminal("[语言] ${file.name} → ${lang.label}", LineKind.INFO)
+            state.appendLog("语言 ${lang.short}")
         }
     },
-    IdeCommand("clear", "Clear console", "清空控制台", "-", "06 / SYSTEM") {
+    IdeCommand("clear", "清空控制台", "CLEAR CONSOLE", "-", "06 / 系统") {
         state.terminal.clear()
-        state.appendTerminal("[00] console cleared", LineKind.MUTED)
+        state.appendTerminal("[00] 控制台已清空", LineKind.MUTED)
     },
-    IdeCommand("diagnostics", "Re-run diagnostics", "重新诊断", "-", "06 / SYSTEM") {
+    IdeCommand("diagnostics", "重新运行诊断", "DIAGNOSTICS", "-", "06 / 系统") {
         state.rescanProblems()
-        state.statusMessage = "DIAGNOSTICS ${state.problems.size} ITEMS"
-        state.appendTerminal("[DIAG] ${state.problems.size} finding(s) in active document", LineKind.WARN)
+        state.statusMessage = "诊断完成 · ${state.problems.size} 项"
+        state.appendTerminal("[诊断] 当前文档发现 ${state.problems.size} 处问题", LineKind.WARN)
     },
 )
