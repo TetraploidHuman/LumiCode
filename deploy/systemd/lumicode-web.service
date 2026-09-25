@@ -1,0 +1,17 @@
+[Unit]
+Description=LUMICODE ANALYSIS OS — Kotlin/Wasm 静态站点（供 Caddy 反代 /code）
+Documentation=https://github.com/TetraploidHuman/LumiCode
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/lumicode
+# 用仓库里的静态服务器，保证 .wasm 返回 application/wasm、.otf 返回 font/otf
+ExecStart=/run/current-system/sw/bin/python3 %h/LumiCodeNext/tools/serve_wasm.py --dir %h/.local/share/lumicode/web --port 8099 --host 127.0.0.1
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

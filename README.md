@@ -138,7 +138,20 @@ Gradle Wrapper 已包含在仓库中（Gradle 8.13），首次构建会联网下
                                                     # composeApp/build/dist/wasmJs/productionExecutable
 ```
 
-Web 产物是纯静态文件（`index.html` + `composeApp.js` + `.wasm` + 字体），任意静态服务器即可托管；
+### 部署到本机 Caddy（`http://<host>:11024/code/`）
+
+本机已经把它挂在 11024 端口的 `/code` 下，原理与 `/ds` 相同：Caddy 做前缀剥离 + 反代，
+静态文件由用户级 systemd 服务（`tools/serve_wasm.py`，127.0.0.1:8099）提供。
+安装脚本、更新方式与排查命令见 [`deploy/README.md`](deploy/README.md)：
+
+```bash
+./deploy/install-service.sh                        # 用户级静态服务（免 root）
+sudo python3 deploy/nixos/patch-caddy.py           # 往 configuration.nix 插入 /code 规则
+sudo nixos-rebuild switch
+./gradlew :composeApp:wasmJsBrowserDistribution && ./deploy/publish-web.sh   # 之后每次更新
+```
+
+Web 产物是纯静态文件（`index.html` + `composeApp.js` + `.wasm` + 字体），任意静态服务器也可托管；
 `index.html` 里带有归档风格的启动遮罩，Wasm 加载完成后由 Compose 画布覆盖。
 
 仓库自带一个开发用静态服务器（正确返回 `application/wasm` / `font/otf`，避免浏览器回退到慢速实例化）：
