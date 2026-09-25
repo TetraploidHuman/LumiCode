@@ -53,7 +53,13 @@
 
 ## 2. 直接下载安装包（Releases）
 
-不想自己编译的话，去 [**Releases**](https://github.com/TetraploidHuman/LumiCode/releases) 下载现成产物：
+不想自己编译的话，去 **[Releases → v0.1.0-demo](https://github.com/TetraploidHuman/LumiCode/releases/latest)** 直接下载：
+
+- Windows：[`LumiCode-1.0.0.msi`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-1.0.0.msi)（安装包） / [`LumiCode-windows-portable.zip`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-windows-portable.zip)（便携版）
+- Android：[`LumiCode-a6348a5-release.apk`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-a6348a5-release.apk)
+- Linux / Web：`.deb` 与 `LumiCode-web-wasm.zip`
+
+完整清单：
 
 | 平台 | 文件 | 用法 |
 | --- | --- | --- |
@@ -67,8 +73,8 @@
 Windows runner 上用 jpackage + WiX 出 MSI/便携版，Ubuntu runner 上出签名 APK、deb 与 Wasm 产物，然后统一发布到 Release。
 打 `v*` 标签会自动触发，也可以在 Actions 页面手动 `Run workflow`。
 
-> APK 使用 CI 每次运行临时生成的签名密钥（指纹会打印在构建日志里），仅适合试用；
-> 要长期分发请替换成你自己的 keystore。
+> APK 使用 CI 每次运行临时生成的签名密钥（当前指纹 `SHA-256 011ed98e…6d44`，每次构建都会变），仅适合试用；
+> 要长期分发请替换成你自己的 keystore。MSI/便携版内置 JRE，用户无需预装 Java。
 
 ---
 

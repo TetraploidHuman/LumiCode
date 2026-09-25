@@ -198,7 +198,7 @@ jobs:
           name: "LUMICODE — ANALYSIS OS ${{ steps.meta.outputs.tag }}"
           target_commitish: ${{ github.sha }}
           draft: false
-          prerelease: true
+          prerelease: false
           fail_on_unmatched_files: false
           files: artifacts/**/*
           body: |
