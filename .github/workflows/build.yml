@@ -60,22 +60,22 @@ jobs:
       # 该 SFX 的行为（源自 C/Util/SfxSetup/SfxSetup.c）：
       #   1) 解压到临时目录；2) 自动执行根目录下名为 run/setup/install/start 的 exe|cmd|bat；
       #   3) WaitForSingleObject 等主程序退出；4) 删除临时目录。
-      # 因此把 jpackage app-image 的内容平铺到载荷根目录，再用 run.cmd 调起 LumiCode.exe。
-      # （不重命名 launcher：jpackage 的启动器按自身文件名找 app/<name>.cfg）
+      # 所以直接把 jpackage app-image 的内容作为载荷根，再放一个 run.cmd 调起 LumiCode.exe
+      #（不改名 launcher：jpackage 启动器按自身文件名找 app/<name>.cfg）。
       - name: Build single-file portable EXE (7-Zip SFX)
         shell: pwsh
         continue-on-error: true
         run: |
           $ErrorActionPreference = "Stop"
           $appImage = "composeApp/build/compose/binaries/main/app/LumiCode"
-          if (-not (Test-Path "$appImage/LumiCode.exe")) { throw "app image not found: $appImage" }
+          if (-not (Test-Path (Join-Path $appImage "LumiCode.exe"))) { throw "app image not found: $appImage" }
 
           $sevenZip = "C:\Program Files\7-Zip\7z.exe"
           if (-not (Test-Path $sevenZip)) { $sevenZip = "C:\Program Files (x86)\7-Zip\7z.exe" }
           if (-not (Test-Path $sevenZip)) { throw "7z.exe not found" }
 
           # 7zSD.sfx 只随 LZMA SDK 分发（7-Zip 安装目录里的 7z.sfx 不支持自动执行）
-          # 注意：7-Zip 的 -o 开关必须与目录名连写，且 PowerShell 下要整体加引号
+          # 注意：7-Zip 的 -o 开关必须与目录名连写，PowerShell 下整体加引号
           $sfx = $null
           foreach ($url in @("https://www.7-zip.org/a/lzma1900.7z", "https://www.7-zip.org/a/lzma1604.7z")) {
             try {
@@ -86,40 +86,53 @@ jobs:
               $found = Get-ChildItem -Path sdkx -Filter "7zSD.sfx" -ErrorAction SilentlyContinue | Select-Object -First 1
               if ($found) {
                 $sfx = $found.FullName
-                Write-Host "sfx module from $url ($($found.Length) bytes)"
+                Write-Host "sfx module: $sfx ($($found.Length) bytes, from $url)"
                 break
               }
             } catch { Write-Host "skip $url : $_" }
           }
           if (-not $sfx) { throw "could not obtain 7zSD.sfx" }
 
-          # staging：app-image 内容平铺 + run.cmd（SFX 只认固定的几个入口文件名）
-          Remove-Item -Recurse -Force stage -ErrorAction SilentlyContinue
-          New-Item -ItemType Directory -Force -Path stage | Out-Null
-          Copy-Item -Recurse -Force "$appImage/*" stage/
+          # SFX 的入口文件（放在 app-image 里，避免再复制一遍整个运行时目录）
           $batch = "@echo off`r`nstart /wait `"`" `"%~dp0LumiCode.exe`" %*`r`n"
-          [System.IO.File]::WriteAllText("$PWD/stage/run.cmd", $batch, [System.Text.Encoding]::ASCII)
-          Get-ChildItem stage | Select-Object Name
+          [System.IO.File]::WriteAllText((Join-Path $appImage "run.cmd"), $batch, [System.Text.Encoding]::ASCII)
+          Write-Host "app image files: $((Get-ChildItem $appImage -Recurse -File).Count)"
 
-          New-Item -ItemType Directory -Force -Path out | Out-Null
-          Push-Location stage
-          & $sevenZip a -t7z -mx=9 -r -bso0 -bsp0 "$env:GITHUB_WORKSPACE/payload.7z" "*"
+          $payload = Join-Path $env:GITHUB_WORKSPACE "payload.7z"
+          Remove-Item -Force $payload -ErrorAction SilentlyContinue
+          Push-Location $appImage
+          & $sevenZip a -t7z -mx=7 -r -bso0 -bsp0 $payload "*"
           $code = $LASTEXITCODE
           Pop-Location
-          if ($code -ne 0) { throw "7z payload failed" }
+          if ($code -ne 0) { throw "7z payload failed with exit code $code" }
+          if (-not (Test-Path $payload)) { throw "payload.7z was not created" }
+          $payloadSize = (Get-Item $payload).Length
+          Write-Host "payload.7z: $payloadSize bytes"
+          if ($payloadSize -lt 20MB) { throw "payload looks too small ($payloadSize bytes) - packaging is broken" }
 
-          cmd /c copy /b "$sfx" + "$env:GITHUB_WORKSPACE/payload.7z" "$env:GITHUB_WORKSPACE/out/LumiCode-portable.exe" | Out-Null
-          Get-Item "out/LumiCode-portable.exe" | Select-Object Name, Length
+          New-Item -ItemType Directory -Force -Path out | Out-Null
+          $target = Join-Path $env:GITHUB_WORKSPACE "out/LumiCode-portable.exe"
+          # 纯 .NET 拼接，避免 cmd /c copy 静默失败
+          $out = [System.IO.File]::Create($target)
+          try {
+            $sfxBytes = [System.IO.File]::ReadAllBytes($sfx)
+            $out.Write($sfxBytes, 0, $sfxBytes.Length)
+            $in = [System.IO.File]::OpenRead($payload)
+            try { $in.CopyTo($out) } finally { $in.Dispose() }
+          } finally { $out.Dispose() }
 
-      # 真机冒烟测试：在 Windows runner 上直接跑一次这个 exe，确认能解压并拉起进程
+          $exeSize = (Get-Item $target).Length
+          Write-Host "LumiCode-portable.exe: $exeSize bytes"
+          if ($exeSize -lt 20MB) { throw "portable exe looks too small ($exeSize bytes)" }
+          & $sevenZip l $target | Select-String -Pattern "run.cmd|LumiCode.exe|java.exe" | Select-Object -First 4 | Out-String | Write-Host
+
+      # 真机冒烟测试：在 Windows runner 上直接跑这个 exe，轮询确认它解压出了 app image
+      # 缺 exe / 解压失败都算失败 —— 这是「双击即运行」产物唯一的验收手段
       - name: Smoke test portable EXE
         shell: pwsh
         run: |
           $exe = "out/LumiCode-portable.exe"
-          if (-not (Test-Path $exe)) {
-            Write-Host "::warning title=portable exe missing::7zSFX step produced nothing, skipping smoke test"
-            exit 0
-          }
+          if (-not (Test-Path $exe)) { throw "portable exe missing - the 7zSFX step failed, see its log" }
 
           $before = (Get-ChildItem $env:TEMP -Directory -ErrorAction SilentlyContinue).Name
           $p = Start-Process -FilePath $exe -PassThru
@@ -155,6 +168,7 @@ jobs:
           Write-Host "smoke test passed: app image extracted and launcher started"
 
       - name: Collect artifacts
+        if: always()
         shell: bash
         run: |
           mkdir -p out
@@ -168,6 +182,7 @@ jobs:
           ls -la out
 
       - name: Upload Windows artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: windows
