@@ -6,7 +6,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -159,10 +158,6 @@ object RlType {
         fontWeight = FontWeight.Normal,
         fontSize = RlSettings.codeFontSize.sp,
         lineHeight = RlSettings.lineHeightSp().sp,
-        lineHeightStyle = LineHeightStyle(
-            alignment = LineHeightStyle.Alignment.Center,
-            trim = LineHeightStyle.Trim.None,
-        ),
         letterSpacing = 0.0.em,
         color = RlColors.CodeDefault,
     )
@@ -172,10 +167,6 @@ object RlType {
         fontWeight = FontWeight.Normal,
         fontSize = (RlSettings.codeFontSize - 1.5f).sp,
         lineHeight = RlSettings.lineHeightSp().sp,
-        lineHeightStyle = LineHeightStyle(
-            alignment = LineHeightStyle.Alignment.Center,
-            trim = LineHeightStyle.Trim.None,
-        ),
         letterSpacing = 0.02.em,
         color = RlColors.Faint,
     )

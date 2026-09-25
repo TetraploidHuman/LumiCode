@@ -40,6 +40,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
@@ -88,6 +89,21 @@ fun CodeEditor(
     val charWidth = remember(measurer, RlSettings.codeFontSize) {
         val measured = measurer.measure("0000000000", RlType.code)
         (measured.size.width / 10f).toInt().coerceAtLeast(1)
+    }
+
+    /**
+     * 行阴影对齐用的几何量。
+     *
+     * Compose 在 lineHeight 大于字体自身行高时，是把字形**贴行框顶部**排的
+     * （实测基线 = 行框顶 + ascent），多余的 leading 全部留在下方，于是「行阴影里的代码」
+     * 看起来偏上。这里量出字体自身行高，把文字整体下移半个 leading，
+     * 字形框就正好落在行框中央；行号栏同步下移，保持与代码同一节奏。
+     */
+    val leadingInset = remember(measurer, RlSettings.codeFontSize) {
+        val tight = measurer.measure("Mg", RlType.code.copy(lineHeight = TextUnit.Unspecified))
+        val fontHeightPx = (tight.getLineBottom(0) - tight.getLineTop(0)).toFloat()
+        val boxHeightPx = with(density) { RlSettings.codeLineHeight.toPx() }
+        with(density) { ((boxHeightPx - fontHeightPx) / 2f).coerceAtLeast(0f).toDp() }
     }
 
     var value by remember(path) { mutableStateOf(TextFieldValue(text, TextRange(0))) }
@@ -174,7 +190,7 @@ fun CodeEditor(
                         Column(
                             Modifier
                                 .fillMaxSize()
-                                .padding(top = RlDimens.codePaddingTop),
+                                .padding(top = RlDimens.codePaddingTop + leadingInset),
                             horizontalAlignment = Alignment.End,
                         ) {
                             for (line in 1..lineCount) {
@@ -265,7 +281,7 @@ fun CodeEditor(
                         },
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(start = RlDimens.codePaddingStart, top = RlDimens.codePaddingTop)
+                            .padding(start = RlDimens.codePaddingStart, top = RlDimens.codePaddingTop + leadingInset)
                             .onPreviewKeyEvent { event ->
                                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                                 val ctrl = event.isCtrlPressed || event.isMetaPressed

@@ -7,6 +7,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$REPO/composeApp/build/dist/wasmJs/productionExecutable"
 DEST="${LUMICODE_WEB_ROOT:-$HOME/.local/share/lumicode/web}"
 UNIT=lumicode-web.service
+PORT=8099
 
 if [[ ! -f "$SRC/index.html" ]]; then
   echo "找不到构建产物: $SRC" >&2
@@ -29,6 +30,11 @@ if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" && -S "$XDG_RUNTIME_DIR/bus" ]]; then
 fi
 
 if systemctl --user restart "$UNIT" 2>/dev/null; then
+  # 等它就绪再返回，避免紧接着访问撞上 502
+  for _ in $(seq 1 20); do
+    if curl -fsS -o /dev/null "http://127.0.0.1:${PORT:-8099}/" 2>/dev/null; then break; fi
+    sleep 0.3
+  done
   echo "==> 已重启 $UNIT：$(systemctl --user is-active "$UNIT")"
 else
   # 静态服务每次请求都从磁盘读，未重启也是最新内容；只是让状态更干净
