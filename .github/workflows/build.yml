@@ -126,45 +126,61 @@ jobs:
           if ($exeSize -lt 20MB) { throw "portable exe looks too small ($exeSize bytes)" }
           & $sevenZip l $target | Select-String -Pattern "run.cmd|LumiCode.exe|java.exe" | Select-Object -First 4 | Out-String | Write-Host
 
-      # 真机冒烟测试：在 Windows runner 上直接跑这个 exe，轮询确认它解压出了 app image
-      # 缺 exe / 解压失败都算失败 —— 这是「双击即运行」产物唯一的验收手段
+      # 真机冒烟测试：在 Windows runner 上直接跑这个 exe，轮询确认它解压出 app image
+      # 探针用 [System.IO.Path]::GetTempPath()，与 SFX 内部 GetTempPathW 完全一致
+      # （runner 上 $env:TEMP 可能为空，只信它就会探测不到）
       - name: Smoke test portable EXE
         shell: pwsh
         run: |
           $exe = "out/LumiCode-portable.exe"
           if (-not (Test-Path $exe)) { throw "portable exe missing - the 7zSFX step failed, see its log" }
 
-          $before = (Get-ChildItem $env:TEMP -Directory -ErrorAction SilentlyContinue).Name
-          $p = Start-Process -FilePath $exe -PassThru
+          $roots = @()
+          foreach ($t in @([System.IO.Path]::GetTempPath(), $env:TEMP, $env:TMP, $env:RUNNER_TEMP)) {
+            if ($t -and (Test-Path $t)) { $roots += (Resolve-Path $t).Path.TrimEnd('\') }
+          }
+          $roots = $roots | Select-Object -Unique
+          Write-Host "temp roots: $($roots -join ' | ')"
+          $before = @{}
+          foreach ($r in $roots) { $before[$r] = @(Get-ChildItem $r -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) }
 
-          # 轮询而不是固定等待：headless runner 上 GUI 可能秒退，SFX 会随之清掉临时目录
+          $p = Start-Process -FilePath $exe -PassThru
+          Write-Host "started $exe pid=$($p.Id)"
+
           $extracted = $false
-          for ($i = 0; $i -lt 30 -and -not $extracted; $i++) {
+          for ($i = 0; $i -lt 45 -and -not $extracted; $i++) {
             Start-Sleep -Seconds 2
-            $dirs = Get-ChildItem $env:TEMP -Directory -ErrorAction SilentlyContinue |
-                    Where-Object { $before -notcontains $_.Name }
-            foreach ($d in $dirs) {
-              if ((Test-Path (Join-Path $d.FullName "LumiCode.exe")) -and
-                  (Test-Path (Join-Path $d.FullName "runtime/bin/java.exe"))) {
-                $extracted = $true
-                Write-Host "extracted to: $($d.FullName)"
-                Get-ChildItem $d.FullName | Select-Object -First 12 Name | Format-Table | Out-String | Write-Host
-                foreach ($probe in @("run.cmd", "LumiCode.exe", "app/LumiCode.cfg", "runtime/bin/java.exe")) {
-                  Write-Host ("  has {0}: {1}" -f $probe, (Test-Path (Join-Path $d.FullName $probe)))
+            foreach ($r in $roots) {
+              $dirs = Get-ChildItem $r -Directory -ErrorAction SilentlyContinue |
+                      Where-Object { $before[$r] -notcontains $_.Name }
+              foreach ($d in $dirs) {
+                $files = @(Get-ChildItem $d.FullName -Recurse -File -ErrorAction SilentlyContinue)
+                if ($files.Count -gt 0) { Write-Host "candidate $($d.FullName): $($files.Count) files" }
+                if ((Test-Path (Join-Path $d.FullName "LumiCode.exe")) -and
+                    (Test-Path (Join-Path $d.FullName "runtime/bin/java.exe"))) {
+                  $extracted = $true
+                  Write-Host "extracted to: $($d.FullName) ($($files.Count) files)"
+                  Get-ChildItem $d.FullName | Select-Object -First 12 Name | Format-Table | Out-String | Write-Host
+                  foreach ($probe in @("run.cmd", "LumiCode.exe", "app/LumiCode.cfg", "runtime/bin/java.exe")) {
+                    Write-Host ("  has {0}: {1}" -f $probe, (Test-Path (Join-Path $d.FullName $probe)))
+                  }
+                  break
                 }
-                break
               }
+              if ($extracted) { break }
             }
           }
 
           Write-Host "processes:"
-          Get-Process | Where-Object { $_.ProcessName -match "LumiCode|java" } |
+          Get-Process | Where-Object { $_.ProcessName -match "LumiCode|java|cmd|7z" } |
             Select-Object Id, ProcessName, StartTime | Format-Table | Out-String | Write-Host
-          Get-Process | Where-Object { $_.ProcessName -match "^(run|LumiCode|java)$" } |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-          if ($p -and -not $p.HasExited) { $p | Stop-Process -Force -ErrorAction SilentlyContinue }
+          if ($p.HasExited) { Write-Host "sfx exit code: $($p.ExitCode)" } else { Write-Host "sfx still running" }
 
-          if (-not $extracted) { throw "smoke test failed: SFX did not extract the app image into temp" }
+          Get-Process | Where-Object { $_.ProcessName -match "^(run|LumiCode|java|cmd)$" } |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+          if (-not $p.HasExited) { $p | Stop-Process -Force -ErrorAction SilentlyContinue }
+
+          if (-not $extracted) { throw "smoke test failed: SFX did not extract the app image into any temp root" }
           Write-Host "smoke test passed: app image extracted and launcher started"
 
       - name: Collect artifacts
