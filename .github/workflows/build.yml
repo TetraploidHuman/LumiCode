@@ -92,6 +92,7 @@ jobs:
             } catch { Write-Host "skip $url : $_" }
           }
           if (-not $sfx) { throw "could not obtain 7zSD.sfx" }
+          Copy-Item -Force $sfx "$env:GITHUB_WORKSPACE/7zSD.sfx"
 
           # SFX 的入口文件（放在 app-image 里，避免再复制一遍整个运行时目录）
           $batch = "@echo off`r`nstart /wait `"`" `"%~dp0LumiCode.exe`" %*`r`n"
@@ -129,6 +130,52 @@ jobs:
           Write-Host "--- entries named LumiCode.exe / run.cmd / java.exe ---"
           & $sevenZip l $target | Select-String -Pattern "LumiCode.exe|run.cmd|java.exe" | Out-String | Write-Host
 
+      # 机制自检：用同一个 7zSD.sfx + 迷你载荷，确认 SFX 会自动执行根目录的 run.cmd
+      # 迷你载荷解压只要 1 秒，比拿 46MB 的真实载荷试错快得多，也不受 GUI 无法启动的干扰
+      - name: Verify SFX entry mechanism (mini payload)
+        shell: pwsh
+        run: |
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          if (-not (Test-Path $sevenZip)) { $sevenZip = "C:\Program Files (x86)\7-Zip\7z.exe" }
+          $sfx = "$env:GITHUB_WORKSPACE/7zSD.sfx"
+          if (-not (Test-Path $sfx)) { throw "7zSD.sfx not kept by the packaging step" }
+
+          $marker = Join-Path $env:RUNNER_TEMP "sfx-entry-ran.txt"
+          Remove-Item -Force $marker -ErrorAction SilentlyContinue
+          $probeDir = Join-Path $env:RUNNER_TEMP "sfxprobe"
+          Remove-Item -Recurse -Force $probeDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $probeDir | Out-Null
+
+          $cmd = "@echo off`r`necho ran %DATE% %TIME% > `"$marker`"`r`n"
+          [System.IO.File]::WriteAllText((Join-Path $probeDir "run.cmd"), $cmd, [System.Text.Encoding]::ASCII)
+
+          Push-Location $probeDir
+          & $sevenZip a -t7z -bso0 -bsp0 (Join-Path $probeDir "probe.7z") "*"
+          Pop-Location
+          if (-not (Test-Path (Join-Path $probeDir "probe.7z"))) { throw "probe payload not created" }
+
+          $probeExe = Join-Path $probeDir "sfxprobe.exe"
+          $out = [System.IO.File]::Create($probeExe)
+          try {
+            $b = [System.IO.File]::ReadAllBytes($sfx); $out.Write($b, 0, $b.Length)
+            $in = [System.IO.File]::OpenRead((Join-Path $probeDir "probe.7z"))
+            try { $in.CopyTo($out) } finally { $in.Dispose() }
+          } finally { $out.Dispose() }
+          Write-Host "probe exe: $((Get-Item $probeExe).Length) bytes"
+
+          $pp = Start-Process -FilePath $probeExe -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 20 -and -not $ok; $i++) {
+            Start-Sleep -Seconds 1
+            if (Test-Path $marker) { $ok = $true }
+          }
+          if (-not $ok) {
+            if ($pp.HasExited) { Write-Host "probe exit code: $($pp.ExitCode)" } else { Write-Host "probe still running" }
+            throw "SFX did not execute run.cmd from the payload root - entry mechanism is broken"
+          }
+          Write-Host "SFX entry mechanism OK: $(Get-Content $marker)"
+          if (-not $pp.HasExited) { $pp | Stop-Process -Force -ErrorAction SilentlyContinue }
+
       # 真机冒烟测试：在 Windows runner 上直接跑这个 exe，轮询确认它解压出 app image
       # 探针用 [System.IO.Path]::GetTempPath()，与 SFX 内部 GetTempPathW 完全一致
       # （runner 上 $env:TEMP 可能为空，只信它就会探测不到）
@@ -163,11 +210,15 @@ jobs:
                   Write-Host ("  top level: " + ((Get-ChildItem $d.FullName | Select-Object -First 25 -ExpandProperty Name) -join ', '))
                   Write-Host ("  first files: " + (($files | Select-Object -First 6 -ExpandProperty FullName) -join ' ; '))
                 }
+                # 注意：jpackage 的 app-image 会 strip 掉 runtime/bin/java.exe，不能用它判断
                 $exeHit = Get-ChildItem $d.FullName -Recurse -Filter "LumiCode.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-                $javaHit = Get-ChildItem $d.FullName -Recurse -Filter "java.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+                $hasCfg = Test-Path (Join-Path $d.FullName "app/LumiCode.cfg")
+                $hasBatch = Test-Path (Join-Path $d.FullName "run.cmd")
+                $hasJvm = (Test-Path (Join-Path $d.FullName "runtime/bin/server/jvm.dll")) -or
+                          (Test-Path (Join-Path $d.FullName "runtime/bin/jvm.dll"))
                 if ($exeHit) { Write-Host "  LumiCode.exe -> $($exeHit.FullName)" }
-                if ($javaHit) { Write-Host "  java.exe     -> $($javaHit.FullName)" }
-                if ($exeHit -and $javaHit) {
+                Write-Host "  app/LumiCode.cfg: $hasCfg | run.cmd: $hasBatch | jvm.dll: $hasJvm"
+                if ($exeHit -and $hasCfg -and $hasBatch -and $hasJvm) {
                   $extracted = $true
                   Write-Host "extracted to: $($exeHit.DirectoryName) ($($files.Count) files)"
                   foreach ($probe in @("run.cmd", "LumiCode.exe", "app/LumiCode.cfg", "runtime/bin/java.exe")) {
@@ -189,7 +240,7 @@ jobs:
             Stop-Process -Force -ErrorAction SilentlyContinue
           if (-not $p.HasExited) { $p | Stop-Process -Force -ErrorAction SilentlyContinue }
 
-          if (-not $extracted) { throw "smoke test failed: SFX did not extract the app image into any temp root" }
+          if (-not $extracted) { throw "smoke test failed: SFX did not extract a complete app image into any temp root" }
           Write-Host "smoke test passed: app image extracted and launcher started"
 
       - name: Collect artifacts
