@@ -51,7 +51,28 @@
 
 ---
 
-## 2. 运行方式
+## 2. 直接下载安装包（Releases）
+
+不想自己编译的话，去 [**Releases**](https://github.com/TetraploidHuman/LumiCode/releases) 下载现成产物：
+
+| 平台 | 文件 | 用法 |
+| --- | --- | --- |
+| Windows | `LumiCode-1.0.0.msi` | 双击安装（内置 JRE，无需先装 Java） |
+| Windows | `LumiCode-windows-portable.zip` | 便携版，解压后运行 `LumiCode.exe` |
+| Android | `LumiCode-*-release.apk` | 直接安装（需允许「未知来源」） |
+| Linux | `*.deb` | `sudo dpkg -i LumiCode_1.0.0_amd64.deb` |
+| Web | `LumiCode-web-wasm.zip` | 解压后用任意静态服务器托管 `index.html` |
+
+这些产物由 [`.github/workflows/build.yml`](.github/workflows/build.yml) 在 GitHub Actions 上构建：
+Windows runner 上用 jpackage + WiX 出 MSI/便携版，Ubuntu runner 上出签名 APK、deb 与 Wasm 产物，然后统一发布到 Release。
+打 `v*` 标签会自动触发，也可以在 Actions 页面手动 `Run workflow`。
+
+> APK 使用 CI 每次运行临时生成的签名密钥（指纹会打印在构建日志里），仅适合试用；
+> 要长期分发请替换成你自己的 keystore。
+
+---
+
+## 3. 运行方式
 
 环境要求：**JDK 17+**（推荐 21）。Android 目标需要 Android SDK（`ANDROID_HOME` 或 `local.properties` 中的 `sdk.dir`）。
 Gradle Wrapper 已包含在仓库中（Gradle 8.13），首次构建会联网下载 Kotlin 2.1.0 / Compose 1.7.3 依赖。
@@ -90,7 +111,7 @@ python3 tools/serve_wasm.py --port 9000 --host 0.0.0.0   # 需要局域网访问
 
 ---
 
-## 3. 工程结构
+## 4. 工程结构
 
 ```
 composeApp/src/
@@ -144,7 +165,7 @@ tools/build_font_subset.py          # 重新生成字体子集
 
 ---
 
-## 4. 已验证内容
+## 5. 已验证内容
 
 | 目标 | 验证方式 | 结果 |
 | --- | --- | --- |
@@ -155,7 +176,7 @@ tools/build_font_subset.py          # 重新生成字体子集
 
 桌面端窄屏（430×920）与宽屏（1600×940）两种版式都已截图验证。
 
-## 5. 已知限制（Demo 范围）
+## 6. 已知限制（Demo 范围）
 
 - 没有真实文件 IO、编译器、LSP、Git；「运行分析」是模拟输出。
 - 撤销/重做依赖输入框自身行为，没有做多光标、代码折叠、正则替换。

@@ -1,0 +1,222 @@
+name: Build & Release
+
+# 出包：Windows 安装包 / 便携版 + Android APK（+ Linux 与 Web 产物）
+# - 推送 v* 标签时自动出包并创建 Release
+# - 也可以在 Actions 页面手动触发（workflow_dispatch）
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (例如 v0.1.0-demo)"
+        required: true
+        default: "v0.1.0-demo"
+
+permissions:
+  contents: write
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx3g -Dfile.encoding=UTF-8"
+  JAVA_VERSION: "21"
+
+jobs:
+  # ---------------------------------------------------------------- Windows
+  windows:
+    name: Windows (jpackage / WiX)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Check WiX availability
+        shell: bash
+        run: |
+          where candle.exe || true
+          where light.exe || true
+          ls "C:/Program Files (x86)/WiX Toolset" 2>/dev/null || echo "wix not found in default location"
+
+      # MSI 需要 WiX；若 runner 未提供，下面的便携版仍然可用（不阻断整个出包流程）
+      - name: Build MSI (WiX)
+        shell: bash
+        continue-on-error: true
+        run: ./gradlew --no-daemon :composeApp:packageMsi --console=plain
+
+      - name: Build portable app image
+        shell: bash
+        run: ./gradlew --no-daemon :composeApp:createDistributable --console=plain
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p out
+          cp composeApp/build/compose/binaries/main/msi/*.msi out/ 2>/dev/null || true
+          # portable zip (解压即用，无需安装)
+          if [ -d composeApp/build/compose/binaries/main/app/LumiCode ]; then
+            cd composeApp/build/compose/binaries/main/app
+            if command -v 7z >/dev/null 2>&1; then 7z a -tzip "$GITHUB_WORKSPACE/out/LumiCode-windows-portable.zip" LumiCode >/dev/null; fi
+            cd "$GITHUB_WORKSPACE"
+          fi
+          ls -la out
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- Android
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate throwaway signing key
+        run: |
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/lumicode.jks" -alias lumicode \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass lumicode -keypass lumicode \
+            -dname "CN=LumiCode Demo, OU=Demo, O=LumiCode, C=CN"
+          keytool -list -v -keystore "$RUNNER_TEMP/lumicode.jks" -storepass lumicode \
+            | grep -E "SHA256:|SHA1:" | head -2 > "$RUNNER_TEMP/fingerprints.txt" || true
+
+      - name: Build signed release APK
+        run: |
+          ./gradlew --no-daemon :composeApp:assembleRelease --console=plain \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/lumicode.jks" \
+            -Pandroid.injected.signing.store.password=lumicode \
+            -Pandroid.injected.signing.key.alias=lumicode \
+            -Pandroid.injected.signing.key.password=lumicode
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          cp composeApp/build/outputs/apk/release/*.apk "out/LumiCode-${GITHUB_SHA::7}-release.apk"
+          ls -la out
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: out/*
+          if-no-files-found: error
+
+  # ------------------------------------------------------------ Linux / Web
+  linux-web:
+    name: Linux + Web (Wasm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Install deb packaging prerequisites
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fakeroot
+
+      - name: Build Linux packages and Wasm distribution
+        run: |
+          ./gradlew --no-daemon :composeApp:packageDeb :composeApp:wasmJsBrowserDistribution --console=plain
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          cp composeApp/build/compose/binaries/main/deb/*.deb out/ || true
+          if [ -d composeApp/build/dist/wasmJs/productionExecutable ]; then
+            cd composeApp/build/dist/wasmJs
+            zip -qr "$GITHUB_WORKSPACE/out/LumiCode-web-wasm.zip" productionExecutable
+            cd "$GITHUB_WORKSPACE"
+          fi
+          ls -la out
+
+      - name: Upload Linux/Web artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-web
+          path: out/*
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------- Release
+  release:
+    name: Publish release
+    needs: [windows, android, linux-web]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List collected files
+        run: ls -laR artifacts | head -50
+
+      - name: Determine tag
+        id: meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: "LUMICODE — ANALYSIS OS ${{ steps.meta.outputs.tag }}"
+          target_commitish: ${{ github.sha }}
+          draft: false
+          prerelease: true
+          fail_on_unmatched_files: false
+          files: artifacts/**/*
+          body: |
+            ## LUMICODE — ANALYSIS OS（档案风格代码编辑器 Demo）
+
+            同一份 Compose Multiplatform 代码，四个平台目标。
+
+            | 平台 | 文件 | 说明 |
+            | --- | --- | --- |
+            | Windows | `LumiCode-1.0.0.msi` | 安装包，双击安装（需要 Windows 10+，内置运行时，无需装 Java） |
+            | Windows | `LumiCode-windows-portable.zip` | 便携版，解压后运行 `LumiCode.exe` |
+            | Android | `LumiCode-*-release.apk` | 直接安装（需允许「未知来源」）；签名使用 CI 临时密钥，仅供试用 |
+            | Linux | `*.deb` | `sudo dpkg -i` 安装 |
+            | Web | `LumiCode-web-wasm.zip` | 解压后用任意静态服务器托管 `index.html`（或 `python3 -m http.server`） |
+
+            > 构建产物由 GitHub Actions 生成，提交：`${{ steps.meta.outputs.sha }}`
+
+            ### 快捷键
+            `Ctrl/Cmd+K` 命令面板 · `Ctrl/Cmd+P` 快速打开 · `Ctrl/Cmd+F` 查找 · `Ctrl/Cmd+S` 保存 · `F5` 运行分析
+
+            详细说明见仓库 [README](https://github.com/${{ github.repository }}#readme)。
