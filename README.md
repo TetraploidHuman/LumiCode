@@ -56,7 +56,8 @@
 不想自己编译的话，去 **[Releases → v0.1.0-demo](https://github.com/TetraploidHuman/LumiCode/releases/latest)** 直接下载：
 
 - **Windows（推荐，免安装）**：[`LumiCode-portable.exe`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-portable.exe)
-  —— **单文件，双击即运行**：会自解压到临时目录再启动，退出后自动清理（首次启动约 10–20 秒）
+  —— **单文件，双击即运行**：46 MB，内含完整 JRE；双击后先静默自解压到 `%TEMP%\7zXXXXXXXX`
+  再启动（首次约 20–40 秒，期间只有一个小进度窗），关闭程序后临时目录自动清理
 - Windows（反复使用更快）：[`LumiCode-windows-portable.zip`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-windows-portable.zip)
   —— 解压一次后双击 `LumiCode.exe`，之后每次启动只要几秒
 - Windows（安装版）：[`LumiCode-1.0.0.msi`](https://github.com/TetraploidHuman/LumiCode/releases/latest/download/LumiCode-1.0.0.msi)
@@ -79,10 +80,13 @@
 | Web | `LumiCode-web-wasm.zip` | 解压后用任意静态服务器托管 `index.html` |
 
 这些产物由 [`.github/workflows/build.yml`](.github/workflows/build.yml) 在 GitHub Actions 上构建：
-Windows runner 上用 jpackage + WiX 出 MSI/便携版，Ubuntu runner 上出签名 APK、deb 与 Wasm 产物，然后统一发布到 Release。
-打 `v*` 标签会自动触发，也可以在 Actions 页面手动 `Run workflow`。
+Windows runner 上用 jpackage + WiX 出 MSI/便携版/单文件 exe（并实跑冒烟测试），
+Ubuntu runner 上出签名 APK、deb 与 Wasm 产物，最后一个 job 汇总发布到 Release。
+打 `v*` 标签会自动触发，也可以在 Actions 页面手动 `Run workflow`，产物都是自动的、可复现的。
 
-> Windows 单文件版用 LZMA SDK 的 `7zSD.sfx` 做自解压（CI 里会实跑一次冒烟测试）；
+> Windows 单文件版用 LZMA SDK 的 `7zSD.sfx` 做自解压。这个 2019 年的 SFX 二进制**只认 `setup.exe` 作为入口**
+> （`run/setup/install/start` 里只有 `setup.exe` 会被执行，`.cmd` 一律不执行——CI 用带标记文件的迷你载荷逐个实测过），
+> 所以载荷根放的是 launcher 副本 `setup.exe` 与配套的 `app/setup.cfg`；
 > APK 使用 CI 每次运行临时生成的签名密钥（每次构建都会变），仅适合试用；
 > 要长期分发请替换成你自己的 keystore。MSI/便携版内置 JRE，用户无需预装 Java。
 
@@ -188,6 +192,8 @@ tools/build_font_subset.py          # 重新生成字体子集
 | Desktop (Linux) | Xvfb 下真实启动，Java Robot 合成鼠标/键盘事件 | 输入、`Ctrl+F`、`Ctrl+K`、`Ctrl+P`、`Ctrl+S`、`F5`、浮层关闭后焦点回收全部通过，截图见 docs |
 | Desktop (Windows) | 同一 JVM 目标 + `packageMsi` 配置 | 代码同源，未在 Windows 实机验证 |
 | Web (Wasm) | `wasmJsBrowserDistribution` + 无头 Chromium 打开产物截图 | 渲染与桌面端一致，中文正常显示 |
+| Windows 单文件 exe | Actions 里跑 `LumiCode-portable.exe`：迷你载荷探针验证入口会被执行，冒烟测试轮询确认解压出完整 app-image | 解压 185 个文件、`setup.exe`/`app/setup.cfg`/`jvm.dll` 齐全；本地再核对过发布产物的 7z 载荷 |
+| Windows MSI | Windows runner 上 jpackage + WiX 3.14 实际打包 | 58 MB 安装包产出成功（未在 Windows 实机安装验证） |
 | Android | `assembleDebug` 产出 APK，校验包内 `assets/composeResources` 字体与 classes.dex | 构建通过，未在真机/模拟器运行 |
 
 桌面端窄屏（430×920）与宽屏（1600×940）两种版式都已截图验证。
