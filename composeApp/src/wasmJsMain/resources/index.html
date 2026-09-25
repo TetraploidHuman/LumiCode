@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>LUMICODE — ANALYSIS OS</title>
+    <style>
+        :root {
+            --paper: #F1F1EF;
+            --ink: #121211;
+            --muted: #8C8C85;
+            --hair: #DBDBD5;
+        }
+
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: var(--paper);
+            color: var(--ink);
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        #boot {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 18px;
+            z-index: 0;
+        }
+
+        #boot .title {
+            font-family: ui-sans-serif, system-ui, "Helvetica Neue", Arial, sans-serif;
+            font-weight: 700;
+            font-size: 30px;
+            letter-spacing: -0.02em;
+        }
+
+        #boot .label {
+            font-size: 9px;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: var(--muted);
+        }
+
+        #boot .bar {
+            width: 220px;
+            height: 1px;
+            background: var(--hair);
+            position: relative;
+            overflow: hidden;
+        }
+
+        #boot .bar::after {
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 1px;
+            width: 40%;
+            background: var(--ink);
+            animation: scan 1.4s ease-in-out infinite;
+        }
+
+        @keyframes scan {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(250%); }
+        }
+
+        #composeTarget {
+            position: fixed;
+            inset: 0;
+            z-index: 1;
+        }
+    </style>
+</head>
+<body>
+<div id="boot">
+    <div class="title">LUMICODE</div>
+    <div class="label">Synthesize information · mounting archive</div>
+    <div class="bar"></div>
+    <div class="label" id="bootStatus">wasm module loading …</div>
+</div>
+<div id="composeTarget"></div>
+<script src="composeApp.js"></script>
+</body>
+</html>

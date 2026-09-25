@@ -1,0 +1,295 @@
+package com.lumicode.editor
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import com.lumicode.editor.resources.Res
+import com.lumicode.editor.resources.noto_mono_bold
+import com.lumicode.editor.resources.noto_mono_regular
+import com.lumicode.editor.resources.noto_sans_bold
+import com.lumicode.editor.resources.noto_sans_regular
+import com.lumicode.editor.state.IdeState
+import com.lumicode.editor.state.LineKind
+import com.lumicode.editor.state.OverlayMode
+import com.lumicode.editor.state.defaultCommands
+import com.lumicode.editor.ui.EditorPanel
+import com.lumicode.editor.ui.ExplorerPanel
+import com.lumicode.editor.ui.NavigationRow
+import com.lumicode.editor.ui.OutputPanel
+import com.lumicode.editor.ui.OverlayHost
+import com.lumicode.editor.ui.ReferencePanel
+import com.lumicode.editor.ui.StatusBar
+import com.lumicode.editor.ui.TelemetryRail
+import com.lumicode.editor.ui.TopBar
+import com.lumicode.editor.ui.outlineOf
+import com.lumicode.editor.ui.theme.RlColors
+import com.lumicode.editor.ui.theme.RlFonts
+import kotlinx.coroutines.delay
+import org.jetbrains.compose.resources.Font
+import org.jetbrains.compose.resources.ExperimentalResourceApi
+
+/**
+ * Root of the ANALYSIS OS shell. Identical on Android, desktop and wasm.
+ */
+@OptIn(ExperimentalResourceApi::class)
+@Composable
+private fun InstallArchiveFonts() {
+    // Bundled subsets of Noto Sans CJK (sans + mono) so Chinese and Latin render
+    // identically on every target — the wasm canvas has no system font fallback.
+    val sans = FontFamily(
+        Font(Res.font.noto_sans_regular, FontWeight.Normal),
+        Font(Res.font.noto_sans_bold, FontWeight.Bold),
+    )
+    val mono = FontFamily(
+        Font(Res.font.noto_mono_regular, FontWeight.Normal),
+        Font(Res.font.noto_mono_bold, FontWeight.Bold),
+    )
+    SideEffect {
+        RlFonts.sans = sans
+        RlFonts.mono = mono
+    }
+}
+
+@Composable
+fun App(state: IdeState) {
+    InstallArchiveFonts()
+    val commands = remember(state) { defaultCommands(state) { state.requestRun() } }
+    val clock = rememberClock()
+    val fps = rememberFps()
+    val rootFocus = remember { FocusRequester() }
+
+    // Simulated analysis pass (F5 / Ctrl+Enter / RUN ANALYSIS).
+    LaunchedEffect(state.runToken) {
+        if (state.runToken == 0) return@LaunchedEffect
+        val file = state.activeFile ?: return@LaunchedEffect
+        state.outputVisible = true
+        state.statusMessage = "ANALYSIS RUNNING"
+        state.appendTerminal("[RUN] analysis pass · ${file.name}", LineKind.INFO)
+        delay(180)
+        state.appendTerminal("      lexing ...................... ok", LineKind.OK)
+        delay(160)
+        val symbols = outlineOf(state.activeContent).size
+        state.appendTerminal("      symbols ${symbols.toString().padStart(3, '0')} .................. ok", LineKind.OK)
+        delay(200)
+        state.rescanProblems()
+        if (state.problems.isEmpty()) {
+            state.appendTerminal("      diagnostics .................. clean", LineKind.OK)
+        } else {
+            state.problems.take(3).forEach { problem ->
+                state.appendTerminal(
+                    "      ${problem.path.substringAfterLast('/')}:${problem.line} ${problem.message}",
+                    if (problem.severity == LineKind.ERROR) LineKind.ERROR else LineKind.WARN,
+                )
+            }
+        }
+        delay(160)
+        state.appendTerminal("      archive ${file.meta.archiveNo} → readable", LineKind.OK)
+        state.appendTerminal("[DONE] analysis complete · ${state.problems.size} finding(s)", LineKind.INFO)
+        state.statusMessage = "ANALYSIS COMPLETE"
+        state.appendLog("RUN ${file.name}")
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(RlColors.Paper)
+            .focusRequester(rootFocus)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                val ctrl = event.isCtrlPressed || event.isMetaPressed
+                val overlayOpen = state.overlay != OverlayMode.NONE
+                when {
+                    ctrl && event.key == Key.K -> {
+                        state.toggleOverlay(OverlayMode.COMMAND_INDEX)
+                        true
+                    }
+
+                    ctrl && event.key == Key.P -> {
+                        state.toggleOverlay(OverlayMode.QUICK_OPEN)
+                        true
+                    }
+
+                    overlayOpen -> false
+
+                    ctrl && event.key == Key.S -> {
+                        state.save()
+                        true
+                    }
+
+                    ctrl && event.key == Key.N -> {
+                        state.newFile()
+                        true
+                    }
+
+                    ctrl && event.key == Key.B -> {
+                        state.explorerVisible = !state.explorerVisible
+                        true
+                    }
+
+                    ctrl && event.key == Key.J -> {
+                        state.outputVisible = !state.outputVisible
+                        true
+                    }
+
+                    ctrl && event.key == Key.F -> {
+                        state.findVisible = !state.findVisible
+                        state.findActiveMatch = 0
+                        true
+                    }
+
+                    ctrl && event.key == Key.W -> {
+                        state.activePath?.let { state.close(it) }
+                        true
+                    }
+
+                    event.key == Key.F5 -> {
+                        state.requestRun()
+                        true
+                    }
+
+                    event.key == Key.Escape -> {
+                        if (state.findVisible) state.findVisible = false else state.statusMessage = "SESSION AUTHORIZED"
+                        true
+                    }
+
+                    else -> false
+                }
+            }
+            .focusable(),
+    ) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+        val compact = maxWidth < 900.dp
+        LaunchedEffect(compact) {
+            if (compact && !state.compactApplied) {
+                state.compactApplied = true
+                state.explorerVisible = false
+                state.referenceVisible = false
+                state.outputVisible = false
+            }
+        }
+
+        Column(Modifier.fillMaxSize()) {
+            TopBar(state, compact = compact, onReinitialize = { state.softReset() })
+            NavigationRow(state, compact = compact)
+
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                if (state.explorerVisible && !compact) {
+                    ExplorerPanel(state)
+                    VerticalHairline()
+                }
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .padding(start = 18.dp, end = 18.dp, bottom = 14.dp),
+                ) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .border(1.dp, RlColors.Hair)
+                            .background(RlColors.Panel),
+                    ) {
+                        EditorPanel(state, onRun = { state.requestRun() }, compact = compact)
+                    }
+                    if (state.outputVisible) {
+                        Spacer(Modifier.height(10.dp))
+                        Box(
+                            Modifier
+                                .height(190.dp)
+                                .fillMaxWidth()
+                                .border(1.dp, RlColors.Hair)
+                                .background(RlColors.PaperDeep),
+                        ) {
+                            OutputPanel(state)
+                        }
+                    }
+                }
+                if (state.referenceVisible && !compact) {
+                    VerticalHairline()
+                    ReferencePanel(state)
+                }
+                if (!compact) TelemetryRail(state, clock, fps)
+            }
+
+            StatusBar(state, clock, compact = compact)
+        }
+
+        // On narrow screens the explorer and the reference area slide in as sheets
+        // instead of squeezing the code surface.
+        if (compact && (state.explorerVisible || state.referenceVisible)) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color(0x33121211))
+                    .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {
+                        state.explorerVisible = false
+                        state.referenceVisible = false
+                    },
+            )
+            Row(
+                Modifier
+                    .fillMaxHeight()
+                    .padding(top = 96.dp, bottom = 28.dp)
+                    .background(RlColors.Paper)
+                    .zIndex(2f),
+            ) {
+                when {
+                    state.explorerVisible -> ExplorerPanel(state, showFooter = false)
+                    state.referenceVisible -> ReferencePanel(state)
+                }
+            }
+        }
+
+        OverlayHost(state, commands)
+        }
+    }
+
+    LaunchedEffect(Unit) { rootFocus.requestFocus() }
+
+    // Overlays and the find bar own focus while they are open. When they close, focus
+    // would otherwise be cleared and global shortcuts would stop being dispatched, so
+    // the shell takes it back.
+    LaunchedEffect(state.overlay, state.findVisible) {
+        if (state.overlay == OverlayMode.NONE && !state.findVisible) rootFocus.requestFocus()
+    }
+}
+
+@Composable
+private fun VerticalHairline() {
+    Box(Modifier.width(1.dp).fillMaxHeight().background(RlColors.Hair))
+}
