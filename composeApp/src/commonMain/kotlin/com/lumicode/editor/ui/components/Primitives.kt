@@ -1,5 +1,8 @@
 package com.lumicode.editor.ui.components
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -9,34 +12,43 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
+import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlType
 
 // ------------------------------------------------------------------ 无界几何
@@ -62,6 +74,115 @@ fun AccentTick(
     color: Color = RlColors.Accent,
 ) {
     Box(modifier.height(thickness).width(length).background(color))
+}
+
+/**
+ * 无反馈点击。
+ *
+ * 无界界面里不需要 ripple，也不需要桌面端默认那个「hover 灰方块」——
+ * 那会凭空长出一个矩形，正好破坏"没有框"这件事。所有可点区域都用这个。
+ */
+fun Modifier.clickableFlat(enabled: Boolean = true, onClick: () -> Unit): Modifier =
+    this.composed {
+        val interaction = remember { MutableInteractionSource() }
+        clickable(
+            enabled = enabled,
+            interactionSource = interaction,
+            indication = null,
+            onClick = onClick,
+        )
+    }
+
+
+/**
+ * 无界标签条：一排标签 + **一条会滑过去的冰青刻度**。
+ *
+ * 刻度位置取自 `onGloballyPositioned` 的真实布局，而不是文本度量 ——
+ * wasm 上内置字体是异步加载的，按度量算会在字体就绪那一刻整体跳一下。
+ */
+@Composable
+fun TabRow(
+    titles: List<String>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    fontSize: TextUnit = 10.sp,
+    gap: Dp = 20.dp,
+    activeColor: Color = RlColors.Ink,
+    hoverColor: Color = RlColors.InkSoft,
+    idleColor: Color = RlColors.Faint,
+    /** hover 底色相对文字向外扩出多少；文字不会被推离对齐线。 */
+    cellHPad: Dp = 8.dp,
+    cellVPad: Dp = 5.dp,
+    trailing: (@Composable RowScope.() -> Unit)? = null,
+) {
+    val density = LocalDensity.current
+    // index -> (x, width)，单位 px；值相等就不写，避免布局期间反复触发重组
+    var bounds by remember(titles.size) { mutableStateOf(List(titles.size) { 0f to 0f }) }
+    val target = bounds.getOrNull(selected) ?: (0f to 0f)
+    val tickX by animateDpAsState(with(density) { target.first.toDp() }, RlMotion.snap(), label = "tickX")
+    val tickW by animateDpAsState(with(density) { target.second.toDp() }, RlMotion.snap(), label = "tickW")
+    val padX = with(density) { cellHPad.toPx() }
+    val padY = with(density) { cellVPad.toPx() }
+
+    Column(modifier) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            titles.forEachIndexed { index, title ->
+                val interaction = remember { MutableInteractionSource() }
+                val hovered by interaction.collectIsHoveredAsState()
+                Box(
+                    Modifier
+                        .onGloballyPositioned { coords ->
+                            val x = coords.positionInParent().x
+                            val w = coords.size.width.toFloat()
+                            val current = bounds.getOrNull(index)
+                            if (current == null || current.first != x || current.second != w) {
+                                bounds = bounds.toMutableList().also { it[index] = x to w }
+                            }
+                        }
+                        .hoverable(interaction)
+                        .clickable(interactionSource = interaction, indication = null) { onSelect(index) },
+                ) {
+                    // hover 反馈：一层极淡的色，**从文字框向四周外扩**。
+                    // 文字本身一动不动，所以标签永远落在面板的对齐线上。
+                    if (hovered && index != selected) {
+                        Canvas(Modifier.matchParentSize()) {
+                            drawRect(
+                                color = RlColors.FieldDeep,
+                                topLeft = Offset(-padX, -padY),
+                                size = Size(size.width + padX * 2f, size.height + padY * 2f),
+                            )
+                        }
+                    }
+                    val ink by animateColorAsState(
+                        targetValue = when {
+                            index == selected -> activeColor
+                            hovered -> hoverColor
+                            else -> idleColor
+                        },
+                        animationSpec = RlMotion.enter(150),
+                        label = "tabInk",
+                    )
+                    LabelRaw(text = title, style = RlType.label(fontSize, ink))
+                }
+                if (index != titles.lastIndex) Spacer(Modifier.width(gap))
+            }
+            if (trailing != null) {
+                Spacer(Modifier.width(gap))
+                trailing()
+            }
+        }
+        Spacer(Modifier.height(7.dp))
+        Box(Modifier.fillMaxWidth().height(2.dp)) {
+            Box(
+                Modifier
+                    .offset(x = tickX)
+                    .width(tickW.coerceAtLeast(0.dp))
+                    .height(2.dp)
+                    .background(RlColors.Accent),
+            )
+        }
+    }
 }
 
 /** Micro uppercase label — the most repeated element of the archive chrome. */

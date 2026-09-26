@@ -8,7 +8,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -41,6 +43,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +56,8 @@ import com.lumicode.editor.ui.components.GhostButton
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
 import com.lumicode.editor.ui.components.SolidBarButton
+import com.lumicode.editor.ui.components.TabRow
+import com.lumicode.editor.ui.components.clickableFlat
 import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
@@ -241,6 +246,7 @@ private fun TreeRow(
 fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
     val file = state.activeFile
     var tab by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
 
     // keep the tab selection stable when switching documents
     LaunchedEffect(state.activePath) { tab = 0 }
@@ -311,56 +317,25 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
             Spacer(Modifier.height(20.dp))
 
             // ------------------------------------------------------- tab strip
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-                val titles = listOf("01 概述" to "", "02 结构" to "", "03 日志" to "")
-                titles.forEachIndexed { index, (cn, en) ->
-                    val active = index == tab
-                    val tick by animateFloatAsState(
-                        targetValue = if (active) 1f else 0f,
-                        animationSpec = RlMotion.enter(150),
-                        label = "refTick",
-                    )
-                    val ink by animateColorAsState(
-                        targetValue = if (active) RlColors.Ink else RlColors.Faint,
-                        animationSpec = RlMotion.enter(150),
-                        label = "refTabInk",
-                    )
-                    Column(
-                        Modifier
-                            .clickable { tab = index }
-                            .padding(end = 18.dp, bottom = 8.dp),
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            LabelRaw(text = cn, style = RlType.label(11.sp, ink))
-                            if (en.isNotEmpty()) {
-                                Spacer(Modifier.width(6.dp))
-                                LabelRaw(
-                                    text = en,
-                                    style = RlType.label(9.sp, if (active) RlColors.Muted else RlColors.Faint),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.height(7.dp))
-                        Box(
-                            Modifier
-                                .height(2.dp)
-                                .width(22.dp)
-                                .graphicsLayer {
-                                    scaleX = tick
-                                    transformOrigin = TransformOrigin(0f, 0.5f)
-                                }
-                                .wash(RlColors.Accent),
-                        )
-                    }
-                }
-            }
+            TabRow(
+                titles = listOf("01 概述", "02 结构", "03 日志"),
+                selected = tab,
+                onSelect = { tab = it },
+                modifier = Modifier.fillMaxWidth(),
+                fontSize = 11.sp,
+                gap = 18.dp,
+            )
             Spacer(Modifier.height(16.dp))
 
             AnimatedContent(
                 targetState = tab,
                 transitionSpec = {
-                    (fadeIn(RlMotion.enter(150)) + slideInVertically(RlMotion.enter(170)) { it / 12 }) togetherWith
-                        fadeOut(RlMotion.exit(90))
+                    val dir = if (targetState > initialState) 1 else -1
+                    val travel = { forward: Boolean ->
+                        with(density) { 30.dp.roundToPx() } * (if (forward) dir else -dir)
+                    }
+                    (slideInHorizontally(RlMotion.enter(190)) { travel(true) } + fadeIn(RlMotion.enter(150))) togetherWith
+                        (slideOutHorizontally(RlMotion.exit(130)) { travel(false) } + fadeOut(RlMotion.exit(90)))
                 },
                 label = "referenceTab",
             ) { current ->
@@ -386,21 +361,32 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                             Label("未找到声明", style = RlType.label(10.sp, RlColors.Faint))
                         } else {
                             outline.take(18).forEach { (line, text) ->
+                                val rowInteraction = remember { MutableInteractionSource() }
+                                val rowHovered by rowInteraction.collectIsHoveredAsState()
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
-                                        .clickable { state.open(file.path, revealLine = line) }
+                                        .hoverable(rowInteraction)
+                                        .clickable(interactionSource = rowInteraction, indication = null) {
+                                            state.open(file.path, revealLine = line)
+                                        }
                                         .padding(vertical = 3.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     LabelRaw(
                                         text = line.toString().padStart(3, '0'),
-                                        style = RlType.mono.copy(fontSize = 10.5.sp, color = RlColors.Faint),
+                                        style = RlType.mono.copy(
+                                            fontSize = 10.5.sp,
+                                            color = if (rowHovered) RlColors.Muted else RlColors.Faint,
+                                        ),
                                     )
                                     Spacer(Modifier.width(10.dp))
                                     BasicText(
                                         text = text,
-                                        style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft),
+                                        style = RlType.mono.copy(
+                                            fontSize = 11.5.sp,
+                                            color = if (rowHovered) RlColors.Ink else RlColors.InkSoft,
+                                        ),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )

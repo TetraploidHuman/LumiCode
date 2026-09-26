@@ -8,7 +8,9 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,6 +49,7 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +65,8 @@ import com.lumicode.editor.ui.components.GhostButton
 import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
+import com.lumicode.editor.ui.components.TabRow
+import com.lumicode.editor.ui.components.clickableFlat
 import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlMotion
@@ -171,18 +176,24 @@ private fun TabStrip(state: IdeState, compact: Boolean) {
                         Box(Modifier.size(4.dp).wash(RlColors.Accent.copy(alpha = 0.6f)))
                     }
                     HGap(9.dp)
+                    val closeInteraction = remember { MutableInteractionSource() }
+                    val closeHovered by closeInteraction.collectIsHoveredAsState()
+                    val closeInk by animateColorAsState(
+                        targetValue = when {
+                            closeHovered -> RlColors.Ink
+                            active -> RlColors.Muted
+                            else -> RlColors.Faint
+                        },
+                        animationSpec = RlMotion.enter(120),
+                        label = "closeInk",
+                    )
                     Box(
                         Modifier
-                            .clickable { state.close(path) }
+                            .hoverable(closeInteraction)
+                            .clickable(interactionSource = closeInteraction, indication = null) { state.close(path) }
                             .padding(2.dp),
                     ) {
-                        LabelRaw(
-                            text = "×",
-                            style = RlType.mono.copy(
-                                fontSize = 12.sp,
-                                color = if (active) RlColors.Muted else RlColors.Faint,
-                            ),
-                        )
+                        LabelRaw(text = "×", style = RlType.mono.copy(fontSize = 12.sp, color = closeInk))
                     }
                 }
             }
@@ -397,64 +408,43 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
 @Composable
 fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
     var tab by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
 
     Column(
         modifier
             .fillMaxWidth()
             .height(188.dp),
     ) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .height(38.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            listOf(
-                "01 终端" to 0,
-                "02 问题" to 1,
-                "03 访问日志" to 2,
-            ).forEach { (title, index) ->
-                val active = tab == index
-                val tick by animateFloatAsState(
-                    targetValue = if (active) 1f else 0f,
-                    animationSpec = RlMotion.enter(150),
-                    label = "consoleTick",
-                )
-                val ink by animateColorAsState(
-                    targetValue = if (active) RlColors.Ink else RlColors.Faint,
-                    animationSpec = RlMotion.enter(150),
-                    label = "consoleTabInk",
-                )
-                Column(Modifier.clickable { tab = index }.padding(end = 20.dp)) {
-                    LabelRaw(text = title, style = RlType.label(10.sp, ink))
-                    Spacer(Modifier.height(7.dp))
-                    Box(
-                        Modifier
-                            .height(2.dp)
-                            .width(22.dp)
-                            .graphicsLayer {
-                                scaleX = tick
-                                transformOrigin = TransformOrigin(0f, 0.5f)
-                            }
-                            .wash(RlColors.Accent),
-                    )
+        val consoleTabs = listOf("01 终端", "02 问题", "03 访问日志")
+        TabRow(
+            titles = consoleTabs,
+            selected = tab,
+            onSelect = { tab = it },
+            modifier = Modifier.fillMaxWidth(),
+            fontSize = 10.sp,
+            trailing = {
+                Spacer(Modifier.weight(1f))
+                val count = when (tab) {
+                    0 -> state.terminal.size
+                    1 -> state.problems.size
+                    else -> state.log.size
                 }
-            }
-            Spacer(Modifier.weight(1f))
-            val count = when (tab) {
-                0 -> state.terminal.size
-                1 -> state.problems.size
-                else -> state.log.size
-            }
-            LabelRaw(text = count.toString().padStart(3, '0'), style = RlType.label(10.sp, RlColors.Muted))
-            HGap(16.dp)
-            GhostButton(text = "隐藏", glyph = "×", glyphLeading = false, onClick = { state.outputVisible = false })
-        }
+                LabelRaw(text = count.toString().padStart(3, '0'), style = RlType.label(10.sp, RlColors.Muted))
+                HGap(16.dp)
+                GhostButton(text = "隐藏", glyph = "×", glyphLeading = false, onClick = { state.outputVisible = false })
+            },
+        )
         AnimatedContent(
             targetState = tab,
             transitionSpec = {
-                (fadeIn(RlMotion.enter(150)) + slideInVertically(RlMotion.enter(170)) { it / 12 }) togetherWith
-                    fadeOut(RlMotion.exit(90))
+                // 往右切就"新内容从右进、旧内容往左出"，往左切反过来——
+                // 方向本身就是信息，比单纯的淡入淡出更能说明"我翻到了哪一页"
+                val dir = if (targetState > initialState) 1 else -1
+                val travel = { forward: Boolean ->
+                    with(density) { 36.dp.roundToPx() } * (if (forward) dir else -dir)
+                }
+                (slideInHorizontally(RlMotion.enter(190)) { travel(true) } + fadeIn(RlMotion.enter(150))) togetherWith
+                    (slideOutHorizontally(RlMotion.exit(130)) { travel(false) } + fadeOut(RlMotion.exit(90)))
             },
             modifier = Modifier.weight(1f).fillMaxWidth(),
             label = "consoleTab",
@@ -487,10 +477,13 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                     Label("未发现问题 · 文档状态良好", style = RlType.label(10.sp, RlColors.Faint))
                 } else {
                     state.problems.take(7).forEach { problem ->
+                        val rowInteraction = remember { MutableInteractionSource() }
+                        val rowHovered by rowInteraction.collectIsHoveredAsState()
                         Row(
                             Modifier
                                 .fillMaxWidth()
-                                .clickable {
+                                .hoverable(rowInteraction)
+                                .clickable(interactionSource = rowInteraction, indication = null) {
                                     state.open(problem.path, revealLine = problem.line)
                                 },
                             verticalAlignment = Alignment.CenterVertically,
