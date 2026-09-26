@@ -33,6 +33,7 @@ import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
 import com.lumicode.editor.ui.components.wash
+import com.lumicode.editor.ui.theme.LUMICODE_BUILD
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
 import com.lumicode.editor.ui.theme.RlType
@@ -238,6 +239,8 @@ fun StatusBar(state: IdeState, clock: String, compact: Boolean = false, modifier
             HGap(if (compact) 12.dp else 10.dp)
             LabelRaw(text = clock, style = RlType.label(10.sp, RlColors.Ink))
             if (!compact) {
+                HGap(18.dp)
+                LabelRaw(text = "v$LUMICODE_BUILD", style = RlType.label(10.sp, RlColors.Faint), maxLines = 1)
                 HGap(18.dp)
                 LabelRaw(text = "重置会话", style = RlType.label(10.sp, RlColors.Faint), maxLines = 1)
             }

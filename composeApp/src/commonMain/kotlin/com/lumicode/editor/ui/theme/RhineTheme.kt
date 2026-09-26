@@ -91,6 +91,12 @@ object RlSettings {
  * subsets once the resources are loaded, which keeps Latin *and* Chinese glyphs identical on
  * Android, desktop and Wasm (Skiko has no system CJK fallback on the web target).
  */
+/**
+ * 构建标识：显示在「设置 → 关于」里。
+ * 排查问题时先看它 —— 免得对着一个旧包判断新代码的行为。
+ */
+const val LUMICODE_BUILD = "0.2.0"
+
 object RlFonts {
     var sans: FontFamily by mutableStateOf(FontFamily.SansSerif)
     var mono: FontFamily by mutableStateOf(FontFamily.Monospace)

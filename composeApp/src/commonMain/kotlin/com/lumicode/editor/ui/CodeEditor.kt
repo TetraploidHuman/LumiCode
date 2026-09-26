@@ -56,6 +56,22 @@ import com.lumicode.editor.ui.theme.RlSettings
 import com.lumicode.editor.ui.theme.RlType
 
 /**
+ * 一次文本布局的「视觉行地图」：每个逻辑行占据的视觉范围（px）。
+ *
+ * 带上 [text] / [width] 作为指纹 —— 只有和当前渲染的文本、当前布局宽度完全一致时
+ * 才会被采用，避免用到上一次布局（比如换行数不同的旧布局）算出的错数据。
+ */
+private data class LineMap(
+    val text: String,
+    val width: Int,
+    val tops: List<Float>,
+    val bottoms: List<Float>,
+    val height: Float,
+) {
+    val size: Int get() = tops.size
+}
+
+/**
  * The code surface: gutter + syntax highlighted, editable text.
  *
  * Text is a plain [BasicTextField] whose rendering is decorated by a
@@ -86,9 +102,10 @@ fun CodeEditor(
 
     // 视觉行模型：软换行会把一个逻辑行摊成多个视觉行。行号栏、当前行高亮带、
     // 光标自动滚动都必须按「逻辑行占据的视觉范围」来定位，否则一换行就整体错位。
-    var lineTops by remember(path) { mutableStateOf<List<Float>>(emptyList()) }
-    var lineBottoms by remember(path) { mutableStateOf<List<Float>>(emptyList()) }
-    var layoutHeightPx by remember(path) { mutableStateOf(0f) }
+    //
+    // 它带着「算它时用的文本 + 布局宽度」一起存（见 [LineMap]），渲染时指纹对不上
+    // 就退回等距兜底 —— 这样模型永远不可能张冠李戴。
+    var lineMap by remember(path) { mutableStateOf<LineMap?>(null) }
     val verticalScroll = rememberScrollState()
 
     var value by remember(path) { mutableStateOf(TextFieldValue(text, TextRange(0))) }
@@ -148,16 +165,12 @@ fun CodeEditor(
         val lineCount = value.text.count { it == '\n' } + 1
         val showLineNumbers = RlSettings.showLineNumbers
         val gutterWidth = if (showLineNumbers) RlDimens.gutterWidth else 0.dp
-        // 布局还没回来时退化成等距，回来后立刻切到真实视觉位置
-        val fallbackTops = List(lineCount) { it * lineHeightPx }
-        val fallbackBottoms = List(lineCount) { (it + 1) * lineHeightPx }
-        val tops = if (lineTops.size == lineCount) lineTops else fallbackTops
-        val bottoms = if (lineBottoms.size == lineCount) lineBottoms else fallbackBottoms
-        val textHeight = if (layoutHeightPx > 0f) {
-            with(density) { layoutHeightPx.toDp() }
-        } else {
-            lineHeight * lineCount
-        }
+        // 模型必须是「当前这份文本」算出来的；对不上（还没布局 / 刚换了文件）
+        // 就退回等距兜底，下一帧布局回来立刻切成真实视觉位置
+        val model = lineMap?.takeIf { it.text == value.text && it.size == lineCount }
+        val tops = model?.tops ?: List(lineCount) { it * lineHeightPx }
+        val bottoms = model?.bottoms ?: List(lineCount) { (it + 1) * lineHeightPx }
+        val textHeight = model?.let { with(density) { it.height.toDp() } } ?: (lineHeight * lineCount)
         val contentHeight = RlDimens.codePaddingTop + textHeight + 28.dp
         val totalHeight = maxOf(maxHeight, contentHeight)
 
@@ -302,7 +315,7 @@ fun CodeEditor(
                             }
 
                             // 逐逻辑行问一次布局：它从哪个视觉行开始、到哪个视觉行结束
-                            val src = result.layoutInput.text
+                            val src = result.layoutInput.text.text
                             val tops = ArrayList<Float>()
                             val bottoms = ArrayList<Float>()
                             var start = 0
@@ -317,10 +330,14 @@ fun CodeEditor(
                                 if (nl < 0) break
                                 start = nl + 1
                             }
-                            if (tops != lineTops) lineTops = tops
-                            if (bottoms != lineBottoms) lineBottoms = bottoms
-                            val h = result.size.height.toFloat()
-                            if (h != layoutHeightPx) layoutHeightPx = h
+                            val map = LineMap(
+                                text = src,
+                                width = result.size.width,
+                                tops = tops,
+                                bottoms = bottoms,
+                                height = result.size.height.toFloat(),
+                            )
+                            if (map != lineMap) lineMap = map
                         },
                         visualTransformation = VisualTransformation { annotated ->
                             if (annotated.text == value.text) {

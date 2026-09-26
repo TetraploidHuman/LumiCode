@@ -61,6 +61,7 @@ import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
 import com.lumicode.editor.ui.components.wash
+import com.lumicode.editor.ui.theme.LUMICODE_BUILD
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlSettings
@@ -449,7 +450,7 @@ private fun SettingsOverlay(state: IdeState, compact: Boolean) {
         }
 
         SettingSection("关于")
-        InfoRow("版本", "LUMICODE 0.1.0 · ANALYSIS OS")
+        InfoRow("版本", "LUMICODE $LUMICODE_BUILD · ANALYSIS OS")
         InfoRow("运行平台", platformLabel())
         InfoRow("代码字体", "JetBrains Mono + Noto Sans CJK（合并子集）")
         InfoRow("界面字体", "Noto Sans CJK SC")
