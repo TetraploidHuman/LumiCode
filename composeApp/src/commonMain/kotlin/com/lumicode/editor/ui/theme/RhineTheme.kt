@@ -46,12 +46,13 @@ object RlColors {
  * 用户可在设置页调整的项。用 Compose state 保存，改完立刻全局生效。
  */
 object RlSettings {
-    /** 代码字号（sp），行高按它推算，保证行号与代码对齐。 */
+    /** 代码字号（sp）。行距由字体自身行高决定（见 RlType.code）。 */
     var codeFontSize by mutableStateOf(14f)
     var tabWidth by mutableStateOf(4)
     var showLineNumbers by mutableStateOf(true)
     var showRail by mutableStateOf(true)
 
+    /** 仅作为首帧的估值：真实行距由 CodeEditor 从文本布局里量出来（见 onTextLayout）。 */
     val codeLineHeight: Dp get() = (codeFontSize + 9f).dp
 
     fun lineHeightSp(): Float = codeFontSize + 9f
@@ -157,7 +158,8 @@ object RlType {
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
         fontSize = RlSettings.codeFontSize.sp,
-        lineHeight = RlSettings.lineHeightSp().sp,
+        // 不设 lineHeight：让行框 = 字体自身行高（ascent+descent）。这样字形正好填满行框，
+        // 行阴影带天然包住字形、视觉居中；显式加大行高时 Compose 会把字形贴顶排、leading 留在下方。
         letterSpacing = 0.0.em,
         color = RlColors.CodeDefault,
     )
@@ -166,7 +168,6 @@ object RlType {
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
         fontSize = (RlSettings.codeFontSize - 1.5f).sp,
-        lineHeight = RlSettings.lineHeightSp().sp,
         letterSpacing = 0.02.em,
         color = RlColors.Faint,
     )
