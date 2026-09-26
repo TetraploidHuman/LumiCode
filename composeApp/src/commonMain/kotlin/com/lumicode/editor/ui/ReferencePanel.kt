@@ -1,9 +1,18 @@
 package com.lumicode.editor.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -17,7 +26,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,6 +38,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -42,6 +56,7 @@ import com.lumicode.editor.ui.components.SolidBarButton
 import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
+import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlType
 
 /**
@@ -106,37 +121,81 @@ private fun TreeNode(node: FileNode, state: IdeState, depth: Int) {
         val open = state.isFolderOpen(node.path)
         TreeRow(
             label = node.name,
-            prefix = if (open) "−" else "+",
             hint = node.fileCount.toString().padStart(2, '0'),
             depth = depth,
             selected = false,
             isFolder = true,
+            open = open,
             onClick = { state.toggleFolder(node.path) },
         )
-        if (open) node.children.forEach { TreeNode(it, state, depth + 1) }
+        // 展开/收起：高度撑开 + 淡入；退场比入场快，收起时后面的兄弟行顺势上移
+        AnimatedVisibility(
+            visible = open,
+            enter = expandVertically(
+                animationSpec = RlMotion.enter(),
+                expandFrom = Alignment.Top,
+            ) + fadeIn(RlMotion.enter(140)),
+            exit = shrinkVertically(
+                animationSpec = RlMotion.exit(140),
+                shrinkTowards = Alignment.Top,
+            ) + fadeOut(RlMotion.exit(90)),
+            label = "treeNode",
+        ) {
+            Column {
+                node.children.forEach { TreeNode(it, state, depth + 1) }
+            }
+        }
     } else {
-        val selected = state.activePath == node.path
-        val dirty = state.isDirty(node.path)
         TreeRow(
             label = node.name,
-            prefix = if (dirty) "•" else " ",
             hint = null,
             depth = depth,
-            selected = selected,
+            selected = state.activePath == node.path,
             isFolder = false,
+            open = false,
+            dirty = state.isDirty(node.path),
             onClick = { state.open(node.path) },
         )
+    }
+}
+
+/**
+ * 节点前的指示器：文件夹是一枚旋转 90° 的小三角，文件是一枚"未保存"方点。
+ * 占位固定，所以展开与否都不会让文字左右跳动。
+ */
+@Composable
+private fun TreeCaret(folder: Boolean, open: Boolean, dirty: Boolean) {
+    if (folder) {
+        val turn by animateFloatAsState(
+            targetValue = if (open) 90f else 0f,
+            animationSpec = RlMotion.snap(),
+            label = "caret",
+        )
+        Canvas(Modifier.size(9.dp).graphicsLayer { rotationZ = turn }) {
+            val path = Path().apply {
+                moveTo(size.width * 0.30f, size.height * 0.16f)
+                lineTo(size.width * 0.78f, size.height * 0.50f)
+                lineTo(size.width * 0.30f, size.height * 0.84f)
+                close()
+            }
+            drawPath(path, if (open) RlColors.Ink else RlColors.Muted)
+        }
+    } else if (dirty) {
+        Box(Modifier.size(4.dp).wash(RlColors.Accent))
+    } else {
+        Spacer(Modifier.size(4.dp))
     }
 }
 
 @Composable
 private fun TreeRow(
     label: String,
-    prefix: String,
     hint: String?,
     depth: Int,
     selected: Boolean,
     isFolder: Boolean,
+    open: Boolean,
+    dirty: Boolean = false,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -156,13 +215,7 @@ private fun TreeRow(
             .padding(start = (depth * 12).dp + 6.dp, top = 5.dp, bottom = 5.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LabelRaw(
-            text = prefix,
-            style = RlType.mono.copy(
-                fontSize = 9.sp,
-                color = if (selected) RlColors.Ink else RlColors.Faint,
-            ),
-        )
+        TreeCaret(folder = isFolder, open = open, dirty = dirty)
         Spacer(Modifier.width(7.dp))
         BasicText(
             text = label,
@@ -262,16 +315,23 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                 val titles = listOf("01 概述" to "", "02 结构" to "", "03 日志" to "")
                 titles.forEachIndexed { index, (cn, en) ->
                     val active = index == tab
+                    val tick by animateFloatAsState(
+                        targetValue = if (active) 1f else 0f,
+                        animationSpec = RlMotion.enter(150),
+                        label = "refTick",
+                    )
+                    val ink by animateColorAsState(
+                        targetValue = if (active) RlColors.Ink else RlColors.Faint,
+                        animationSpec = RlMotion.enter(150),
+                        label = "refTabInk",
+                    )
                     Column(
                         Modifier
                             .clickable { tab = index }
                             .padding(end = 18.dp, bottom = 8.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            LabelRaw(
-                                text = cn,
-                                style = RlType.label(11.sp, if (active) RlColors.Ink else RlColors.Faint),
-                            )
+                            LabelRaw(text = cn, style = RlType.label(11.sp, ink))
                             if (en.isNotEmpty()) {
                                 Spacer(Modifier.width(6.dp))
                                 LabelRaw(
@@ -285,15 +345,27 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                             Modifier
                                 .height(2.dp)
                                 .width(22.dp)
-                                .wash(if (active) RlColors.Accent else Color.Transparent),
+                                .graphicsLayer {
+                                    scaleX = tick
+                                    transformOrigin = TransformOrigin(0f, 0.5f)
+                                }
+                                .wash(RlColors.Accent),
                         )
                     }
                 }
             }
             Spacer(Modifier.height(16.dp))
 
-            Column(Modifier.fillMaxWidth()) {
-                when (tab) {
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    (fadeIn(RlMotion.enter(150)) + slideInVertically(RlMotion.enter(170)) { it / 12 }) togetherWith
+                        fadeOut(RlMotion.exit(90))
+                },
+                label = "referenceTab",
+            ) { current ->
+                Column(Modifier.fillMaxWidth()) {
+                when (current) {
                     0 -> {
                         Label("摘要", style = RlType.label(10.sp, RlColors.Ink))
                         Spacer(Modifier.height(12.dp))
@@ -357,6 +429,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                             }
                         }
                     }
+                }
                 }
             }
 

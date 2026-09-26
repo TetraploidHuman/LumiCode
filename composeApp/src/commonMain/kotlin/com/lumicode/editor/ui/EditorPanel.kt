@@ -1,5 +1,15 @@
 package com.lumicode.editor.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -30,6 +40,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -52,6 +64,7 @@ import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
 import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
+import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlType
 
 /**
@@ -69,7 +82,15 @@ fun EditorPanel(
         TabStrip(state, compact)
         Breadcrumb(state)
 
-        if (state.findVisible) {
+        // 查找条不是"出现/消失"，而是从上沿撑开、收起时更快
+        AnimatedVisibility(
+            visible = state.findVisible,
+            enter = expandVertically(RlMotion.enter(160), expandFrom = Alignment.Top) +
+                fadeIn(RlMotion.enter(140)),
+            exit = shrinkVertically(RlMotion.exit(120), shrinkTowards = Alignment.Top) +
+                fadeOut(RlMotion.exit(80)),
+            label = "findBar",
+        ) {
             FindBar(state, compact)
         }
 
@@ -394,17 +415,28 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                 "03 访问日志" to 2,
             ).forEach { (title, index) ->
                 val active = tab == index
+                val tick by animateFloatAsState(
+                    targetValue = if (active) 1f else 0f,
+                    animationSpec = RlMotion.enter(150),
+                    label = "consoleTick",
+                )
+                val ink by animateColorAsState(
+                    targetValue = if (active) RlColors.Ink else RlColors.Faint,
+                    animationSpec = RlMotion.enter(150),
+                    label = "consoleTabInk",
+                )
                 Column(Modifier.clickable { tab = index }.padding(end = 20.dp)) {
-                    LabelRaw(
-                        text = title,
-                        style = RlType.label(10.sp, if (active) RlColors.Ink else RlColors.Faint),
-                    )
+                    LabelRaw(text = title, style = RlType.label(10.sp, ink))
                     Spacer(Modifier.height(7.dp))
                     Box(
                         Modifier
                             .height(2.dp)
                             .width(22.dp)
-                            .wash(if (active) RlColors.Accent else Color.Transparent),
+                            .graphicsLayer {
+                                scaleX = tick
+                                transformOrigin = TransformOrigin(0f, 0.5f)
+                            }
+                            .wash(RlColors.Accent),
                     )
                 }
             }
@@ -418,13 +450,17 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             HGap(16.dp)
             GhostButton(text = "隐藏", glyph = "×", glyphLeading = false, onClick = { state.outputVisible = false })
         }
-        Column(
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(top = 6.dp),
-        ) {
-            when (tab) {
+        AnimatedContent(
+            targetState = tab,
+            transitionSpec = {
+                (fadeIn(RlMotion.enter(150)) + slideInVertically(RlMotion.enter(170)) { it / 12 }) togetherWith
+                    fadeOut(RlMotion.exit(90))
+            },
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            label = "consoleTab",
+        ) { current ->
+            Column(Modifier.fillMaxSize().padding(top = 6.dp)) {
+            when (current) {
                 0 -> state.terminal.takeLast(9).forEach { line ->
                     Row(Modifier.fillMaxWidth()) {
                         LabelRaw(text = line.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
@@ -490,6 +526,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                         LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft))
                     }
                 }
+            }
             }
         }
     }

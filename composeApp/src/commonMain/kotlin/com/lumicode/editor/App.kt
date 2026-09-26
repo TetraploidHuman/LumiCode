@@ -1,7 +1,15 @@
 package com.lumicode.editor
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,10 +26,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.foundation.focusable
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -61,10 +69,11 @@ import com.lumicode.editor.ui.outlineOf
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
 import com.lumicode.editor.ui.theme.RlFonts
+import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlSettings
 import kotlinx.coroutines.delay
-import org.jetbrains.compose.resources.Font
 import org.jetbrains.compose.resources.ExperimentalResourceApi
+import org.jetbrains.compose.resources.Font
 
 /**
  * Root of the ANALYSIS OS shell. Identical on Android, desktop and wasm.
@@ -255,12 +264,26 @@ fun App(state: IdeState) {
                         compact = compact,
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                     )
-                    if (state.outputVisible) {
-                        Spacer(Modifier.height(RlDimens.seam))
-                        OutputPanel(
-                            state,
-                            modifier = Modifier.height(190.dp).fillMaxWidth(),
-                        )
+                    // 控制台：从下沿撑开（编辑器同步收窄），收起比展开更快
+                    AnimatedVisibility(
+                        visible = state.outputVisible,
+                        enter = expandVertically(
+                            animationSpec = RlMotion.enter(200),
+                            expandFrom = Alignment.Bottom,
+                        ) + fadeIn(RlMotion.enter(160)),
+                        exit = shrinkVertically(
+                            animationSpec = RlMotion.exit(150),
+                            shrinkTowards = Alignment.Bottom,
+                        ) + fadeOut(RlMotion.exit(90)),
+                        label = "console",
+                    ) {
+                        Column {
+                            Spacer(Modifier.height(RlDimens.seam))
+                            OutputPanel(
+                                state,
+                                modifier = Modifier.height(190.dp).fillMaxWidth(),
+                            )
+                        }
                     }
                 }
                 if (state.referenceVisible && !compact) {
@@ -272,9 +295,14 @@ fun App(state: IdeState) {
             StatusBar(state, clock, compact = compact)
         }
 
-        // On narrow screens the explorer and the reference area slide in as sheets
-        // instead of squeezing the code surface.
-        if (compact && (state.explorerVisible || state.referenceVisible)) {
+        // 窄屏：资源管理器 / 参考区从左侧滑入，遮罩同时淡入
+        val drawerOpen = compact && (state.explorerVisible || state.referenceVisible)
+        AnimatedVisibility(
+            visible = drawerOpen,
+            enter = fadeIn(RlMotion.enter(150)),
+            exit = fadeOut(RlMotion.exit()),
+            label = "drawerScrim",
+        ) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -284,6 +312,13 @@ fun App(state: IdeState) {
                         state.referenceVisible = false
                     },
             )
+        }
+        AnimatedVisibility(
+            visible = drawerOpen,
+            enter = slideInHorizontally(RlMotion.enter(200)) { -it } + fadeIn(RlMotion.enter(150)),
+            exit = slideOutHorizontally(RlMotion.exit(150)) { -it } + fadeOut(RlMotion.exit(90)),
+            label = "drawer",
+        ) {
             Row(
                 Modifier
                     .fillMaxHeight()

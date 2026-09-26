@@ -1,5 +1,9 @@
 package com.lumicode.editor.ui
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,9 +21,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,6 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
@@ -51,6 +53,7 @@ import com.lumicode.editor.syntax.SyntaxHighlighter
 import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
+import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlSettings
 import com.lumicode.editor.ui.theme.RlType
 
@@ -94,6 +97,14 @@ fun CodeEditor(
 
     var value by remember(path) { mutableStateOf(TextFieldValue(text, TextRange(0))) }
 
+    // 切换文档 = 换一页：整块代码面轻轻「显影」出来（微弱上浮 + 淡入）。
+    // 用 graphicsLayer 而不是换 composable，BasicTextField 不会重建、也不会丢焦点。
+    val reveal = remember { Animatable(1f) }
+    LaunchedEffect(path) {
+        reveal.snapTo(0f)
+        reveal.animateTo(1f, tween(durationMillis = 190, easing = RlMotion.Sharp))
+    }
+
     // Reset the buffer when switching documents.
     LaunchedEffect(path) {
         value = TextFieldValue(text, TextRange(0))
@@ -130,7 +141,15 @@ fun CodeEditor(
         }
     }
 
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                val p = reveal.value
+                alpha = 0.15f + 0.85f * p
+                translationY = (1f - p) * 6f
+            },
+    ) {
         val lineCount = value.text.count { it == '\n' } + 1
         val showLineNumbers = RlSettings.showLineNumbers
         val gutterWidth = if (showLineNumbers) RlDimens.gutterWidth else 0.dp

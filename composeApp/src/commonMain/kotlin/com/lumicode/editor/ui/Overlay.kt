@@ -1,5 +1,13 @@
 package com.lumicode.editor.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -47,13 +55,14 @@ import com.lumicode.editor.platform.platformLabel
 import com.lumicode.editor.state.IdeCommand
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.OverlayMode
+import com.lumicode.editor.ui.components.AccentTick
 import com.lumicode.editor.ui.components.Chip
 import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
-import com.lumicode.editor.ui.components.AccentTick
 import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
+import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlSettings
 import com.lumicode.editor.ui.theme.RlType
 
@@ -68,14 +77,54 @@ private data class PaletteRow(
 
 /**
  * 浮层总入口：命令面板 / 快速打开 / 设置 / 工作区总览。
+ *
+ * 页面切换的动效分两层：厚纱快速淡入淡出，内容再做"上浮 + 微放大 + 淡入"。
+ * 用 [MutableTransitionState] 而不是 `if`，是为了让**关闭**也有动画 ——
+ * 内容在退场期间继续渲染上一次的浮层。
  */
 @Composable
 fun OverlayHost(state: IdeState, commands: List<IdeCommand>, compact: Boolean = false) {
-    when (state.overlay) {
-        OverlayMode.NONE -> Unit
-        OverlayMode.COMMAND_INDEX, OverlayMode.QUICK_OPEN -> PaletteOverlay(state, commands, compact)
-        OverlayMode.SETTINGS -> SettingsOverlay(state, compact)
-        OverlayMode.OVERVIEW -> OverviewOverlay(state, compact)
+    val visible = remember { MutableTransitionState(false) }
+    visible.targetState = state.overlay != OverlayMode.NONE
+
+    // 退场时 state.overlay 已经是 NONE，所以得自己记住"刚才那一页"
+    var lastMode by remember { mutableStateOf(OverlayMode.COMMAND_INDEX) }
+    if (state.overlay != OverlayMode.NONE) lastMode = state.overlay
+
+    AnimatedVisibility(
+        visibleState = visible,
+        enter = fadeIn(RlMotion.enter(150)),
+        exit = fadeOut(RlMotion.exit()),
+        label = "scrim",
+    ) {
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(RlColors.Scrim)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ) { state.overlay = OverlayMode.NONE },
+        )
+    }
+
+    AnimatedVisibility(
+        visibleState = visible,
+        enter = fadeIn(RlMotion.enter(160)) +
+            scaleIn(RlMotion.enter(190), initialScale = 0.988f) +
+            slideInVertically(RlMotion.enter(190)) { -it / 56 },
+        exit = fadeOut(RlMotion.exit(90)) +
+            scaleOut(RlMotion.exit(120), targetScale = 0.992f),
+        label = "sheet",
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+            when (lastMode) {
+                OverlayMode.COMMAND_INDEX, OverlayMode.QUICK_OPEN -> PaletteSheet(state, commands, compact)
+                OverlayMode.SETTINGS -> SettingsOverlay(state, compact)
+                OverlayMode.OVERVIEW -> OverviewOverlay(state, compact)
+                OverlayMode.NONE -> Unit
+            }
+        }
     }
 }
 
@@ -88,12 +137,13 @@ private fun SheetScaffold(
     compact: Boolean,
     content: @Composable () -> Unit,
 ) {
-    val scrimInteraction = remember { MutableInteractionSource() }
-    Box(
+    Column(
         Modifier
-            .fillMaxSize()
-            .background(RlColors.Scrim)
-            .clickable(indication = null, interactionSource = scrimInteraction) { onClose() }
+            .padding(top = if (compact) 24.dp else 84.dp, start = 12.dp, end = 12.dp)
+            .width(if (compact) 0.dp else 700.dp)
+            .then(if (compact) Modifier.fillMaxWidth() else Modifier)
+            .heightIn(max = 640.dp)
+            .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
                     onClose()
@@ -102,16 +152,7 @@ private fun SheetScaffold(
                     false
                 }
             },
-        contentAlignment = Alignment.TopCenter,
     ) {
-        Column(
-            Modifier
-                .padding(top = if (compact) 24.dp else 84.dp, start = 12.dp, end = 12.dp)
-                .width(if (compact) 0.dp else 700.dp)
-                .then(if (compact) Modifier.fillMaxWidth() else Modifier)
-                .heightIn(max = 640.dp)
-                .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { },
-        ) {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -147,14 +188,13 @@ private fun SheetScaffold(
             ) {
                 content()
             }
-        }
     }
 }
 
 // ------------------------------------------------------------------ 命令面板
 
 @Composable
-private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact: Boolean) {
+private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: Boolean) {
     val mode = state.overlay
     val query = state.overlayQuery
     val rows: List<PaletteRow> = when (mode) {
@@ -201,24 +241,13 @@ private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact:
         focus.requestFocus()
     }
 
-    val scrimInteraction = remember { MutableInteractionSource() }
-    Box(
+    Column(
         Modifier
-            .fillMaxSize()
-            .background(RlColors.Scrim)
-            .clickable(indication = null, interactionSource = scrimInteraction) {
-                state.overlay = OverlayMode.NONE
-            },
-        contentAlignment = Alignment.TopCenter,
-    ) {
-        Column(
-            Modifier
-                .padding(top = if (compact) 24.dp else 84.dp, start = 12.dp, end = 12.dp)
-                .width(if (compact) 0.dp else 660.dp)
-                .then(if (compact) Modifier.fillMaxWidth() else Modifier)
-                .heightIn(max = 560.dp)
-                
-                .onPreviewKeyEvent { event ->
+            .padding(top = if (compact) 24.dp else 84.dp, start = 12.dp, end = 12.dp)
+            .width(if (compact) 0.dp else 660.dp)
+            .then(if (compact) Modifier.fillMaxWidth() else Modifier)
+            .heightIn(max = 560.dp)
+            .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (event.key) {
                         Key.Escape -> {
@@ -369,7 +398,6 @@ private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact:
                     style = RlType.label(9.5.sp, RlColors.Faint),
                 )
             }
-        }
     }
 }
 
