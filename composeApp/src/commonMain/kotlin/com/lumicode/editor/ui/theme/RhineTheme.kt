@@ -14,32 +14,60 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 
 /**
- * Palette lifted from the "RHINE LAB ANALYSIS OS" archival console look:
- * warm paper background, hairline rules, near-black ink, almost no chroma.
+ * 无界 · Minimalist Futurism palette.
+ *
+ * 四条规则：
+ *  1. 整个界面是**一整块连续的平面**，靠极淡的纵向渐变暗示光源，没有卡片、没有圆角、没有描边；
+ *  2. 区域之间只用留白、字号、字重区分，绝不画分隔线；
+ *  3. 层次只允许用"极淡的一层色"暗示（[FieldDeep] 一档就够），永远不出现边框和阴影；
+ *  4. 只有"活着"的信号才上色 —— [Accent] 是唯一的冷青强调色，其余全是灰阶。
  */
 object RlColors {
-    val Paper = Color(0xFFF1F1EF)
-    val PaperDeep = Color(0xFFEAEAE7)
-    val Panel = Color(0xFFF7F7F5)
-    val PanelGhost = Color(0x66FFFFFF)
-    val Ink = Color(0xFF121211)
-    val InkSoft = Color(0xFF3B3B38)
-    val Muted = Color(0xFF8C8C85)
-    val Faint = Color(0xFFB4B4AD)
-    val Hair = Color(0xFFDBDBD5)
-    val HairStrong = Color(0xFFC4C4BD)
-    val Scrim = Color(0xCCE9E9E5)
+    // -------------------------------------------------------------------- 场
+    /** 场：唯一的底色，连续无边。 */
+    val Field = Color(0xFFEFF2F6)
+    val FieldTop = Color(0xFFF6F8FB)
+    val FieldBottom = Color(0xFFE9EDF3)
+    /** 场里再深一档：hover / 当前行 / 内嵌元素用的那"一层色"。 */
+    val FieldDeep = Color(0xFFE3E8EF)
 
-    // Code token colours: monochrome base with a single muted accent family.
-    val CodeDefault = Color(0xFF232322)
-    val CodeKeyword = Color(0xFF121211)
-    val CodeString = Color(0xFF5C6A52)
-    val CodeNumber = Color(0xFF6E5636)
-    val CodeComment = Color(0xFFA6A69E)
-    val CodeType = Color(0xFF3F4A55)
-    val CodeAnnotation = Color(0xFF7A6A4C)
-    val CodeFunction = Color(0xFF2F3A44)
-    val CodePunct = Color(0xFF6E6E67)
+    // 兼容旧命名：全部指向同一块场，界面里不再有"面板"这一概念。
+    val Paper = Field
+    val PaperDeep = FieldDeep
+    val Panel = Color(0xFFFBFCFE)
+    val PanelGhost = Color(0x33FFFFFF)
+
+    // -------------------------------------------------------------------- 墨
+    val Ink = Color(0xFF0A0C10)
+    val InkSoft = Color(0xFF3A4048)
+    val Muted = Color(0xFF868D96)
+    val Faint = Color(0xFFB0B7C0)
+
+    // 几乎不用；保留给"拖拽预览"这类必须有边的极少数场景。
+    val Hair = Color(0xFFDFE4EA)
+    val HairStrong = Color(0xFFC6CDD6)
+
+    /** 浮层遮罩：一层厚纱，让底下的平面退远，而不是给浮层加个框。 */
+    val Scrim = Color(0xEDF0F3F8)
+
+    // ------------------------------------------------------------------ 强调
+    /** 唯一强调色：冰青。只用于光标、当前行、活动标签、"运行中"这类活信号。 */
+    val Accent = Color(0xFF2C7C8F)
+    val AccentDeep = Color(0xFF1F6273)
+    val AccentSoft = Color(0x1F2C7C8F)
+    /** 更淡的一档，用于非活动命中项。 */
+    val AccentGlow = Color(0x102C7C8F)
+
+    // ------------------------------------------------------ 代码 token（冷调）
+    val CodeDefault = Color(0xFF1C2126)
+    val CodeKeyword = Color(0xFF0A0C10)
+    val CodeString = Color(0xFF47705A)
+    val CodeNumber = Color(0xFF7C5A2E)
+    val CodeComment = Color(0xFFA0A7B0)
+    val CodeType = Color(0xFF2F5A69)
+    val CodeAnnotation = Color(0xFF6B5636)
+    val CodeFunction = Color(0xFF23414C)
+    val CodePunct = Color(0xFF6A717A)
 }
 
 /**
@@ -89,6 +117,19 @@ object RlType {
         lineHeight = 36.sp,
         letterSpacing = (-0.025).em,
         color = RlColors.Ink,
+    )
+
+    /**
+     * 报头后半段：靠"字重 + 颜色"拉开层级，而不是靠字号或分栏线。
+     * Minimalist Futurism 里最常见的一招 —— 黑体粗字与细字并排。
+     */
+    val titleSoft: TextStyle get() = TextStyle(
+        fontFamily = Display,
+        fontWeight = FontWeight.Normal,
+        fontSize = 30.sp,
+        lineHeight = 31.sp,
+        letterSpacing = 0.06.em,
+        color = RlColors.Muted,
     )
 
     val sectionTitle: TextStyle get() = TextStyle(
@@ -175,6 +216,12 @@ object RlType {
 
 object RlDimens {
     val hair = 1.dp
+
+    /** 区域之间只留白。 */
+    val seam = 22.dp
+    /** 页面外缘留白：文字不贴边，但平面一直铺到窗口边缘。 */
+    val pagePad = 22.dp
+
     val gutterWidth = 56.dp
     val explorerWidth = 236.dp
     val referenceWidth = 320.dp

@@ -1,7 +1,5 @@
 package com.lumicode.editor.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -13,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -22,17 +21,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.lumicode.editor.platform.platformLabel
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.OverlayMode
+import com.lumicode.editor.ui.components.AccentTick
 import com.lumicode.editor.ui.components.Chip
 import com.lumicode.editor.ui.components.GearIcon
 import com.lumicode.editor.ui.components.GhostButton
 import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
+import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
 import com.lumicode.editor.ui.theme.RlType
@@ -49,11 +49,11 @@ fun TopBar(
     Row(
         modifier
             .fillMaxWidth()
-            .padding(start = 26.dp, top = 18.dp, end = 26.dp, bottom = 12.dp),
+            .padding(start = RlDimens.pagePad, top = 18.dp, end = RlDimens.pagePad, bottom = 12.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Column {
-            // 两个标题放在同一行：LUMICODE ANALYSIS OS
+            // 报头：靠字重对比拉层级 —— 黑体粗字 + 细字，不用分栏线
             Row(verticalAlignment = Alignment.Bottom) {
                 BasicText(
                     text = "LUMICODE",
@@ -62,40 +62,37 @@ fun TopBar(
                         lineHeight = if (compact) 21.sp else 31.sp,
                     ),
                 )
-                HGap(if (compact) 7.dp else 14.dp)
+                HGap(if (compact) 7.dp else 13.dp)
                 BasicText(
-                    text = "ANALYSIS",
-                    style = RlType.title.copy(
-                        fontSize = if (compact) 19.sp else 30.sp,
-                        lineHeight = if (compact) 21.sp else 31.sp,
-                        letterSpacing = 0.02.em,
-                    ),
-                )
-                HGap(if (compact) 4.dp else 8.dp)
-                BasicText(
-                    text = "OS",
-                    style = RlType.title.copy(
+                    text = "ANALYSIS OS",
+                    style = RlType.titleSoft.copy(
                         fontSize = if (compact) 19.sp else 30.sp,
                         lineHeight = if (compact) 21.sp else 31.sp,
                     ),
                 )
             }
             if (!compact) {
-                Spacer(Modifier.height(7.dp))
-                Label("信息综合处理 · 代码档案工作台")
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    AccentTick(length = 18.dp)
+                    HGap(10.dp)
+                    LabelRaw(
+                        text = "信息综合处理 · 代码档案工作台",
+                        style = RlType.label(9.5.sp, RlColors.Faint),
+                    )
+                }
             }
         }
 
         Spacer(Modifier.weight(1f))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // 档案检索 / 命令面板入口
+            // 档案检索 / 命令面板入口：无边药丸，hover 时浮起一层
             val interaction = remember { MutableInteractionSource() }
             val hovered by interaction.collectIsHoveredAsState()
             Row(
                 Modifier
-                    .border(1.dp, if (hovered) RlColors.HairStrong else RlColors.Hair)
-                    .background(if (hovered) RlColors.Panel else Color.Transparent)
+                    .wash(if (hovered) RlColors.Panel else Color.Transparent)
                     .hoverable(interaction)
                     .clickable(interactionSource = interaction, indication = null) {
                         state.toggleOverlay(OverlayMode.COMMAND_INDEX)
@@ -103,7 +100,13 @@ fun TopBar(
                     .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                BasicText("◎", style = RlType.mono.copy(fontSize = 13.sp, color = RlColors.Ink))
+                BasicText(
+                    "◎",
+                    style = RlType.mono.copy(
+                        fontSize = 13.sp,
+                        color = if (hovered) RlColors.Accent else RlColors.Ink,
+                    ),
+                )
                 if (!compact) {
                     HGap(10.dp)
                     Label("档案检索", style = RlType.label(11.sp, RlColors.InkSoft))
@@ -135,13 +138,13 @@ fun TopBar(
             val gearHovered by gearInteraction.collectIsHoveredAsState()
             Row(
                 Modifier
-                    .background(if (gearHovered) RlColors.PaperDeep else Color.Transparent)
+                    .wash(if (gearHovered) RlColors.Panel else Color.Transparent)
                     .hoverable(gearInteraction)
                     .clickable(interactionSource = gearInteraction, indication = null) { onOpenSettings() }
                     .padding(horizontal = 8.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                GearIcon(size = 16.dp)
+                GearIcon(size = 16.dp, color = if (gearHovered) RlColors.Accent else RlColors.Ink)
                 if (!compact) {
                     HGap(7.dp)
                     Label("设置", style = RlType.label(11.sp, RlColors.InkSoft))
@@ -162,7 +165,7 @@ fun NavigationRow(
     Row(
         modifier
             .fillMaxWidth()
-            .padding(start = 26.dp, end = 26.dp, top = 4.dp, bottom = 10.dp),
+            .padding(start = RlDimens.pagePad, end = RlDimens.pagePad, top = 4.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         GhostButton(
@@ -180,8 +183,8 @@ fun NavigationRow(
         ) {
             Chip(
                 text = "ESC",
-                borderColor = if (escHovered) RlColors.Ink else RlColors.HairStrong,
-                textColor = if (escHovered) RlColors.Ink else RlColors.Muted,
+                fill = if (escHovered) RlColors.AccentSoft else RlColors.PaperDeep,
+                textColor = if (escHovered) RlColors.AccentDeep else RlColors.Muted,
             )
         }
         Spacer(Modifier.weight(1f))
@@ -196,20 +199,22 @@ fun NavigationRow(
     }
 }
 
-/** 底部状态条。 */
+/** 底部状态条。无分界线 —— 只是浮在场地上的细字，边缘自然淡出。 */
 @Composable
 fun StatusBar(state: IdeState, clock: String, compact: Boolean = false, modifier: Modifier = Modifier) {
     Column(modifier.fillMaxWidth()) {
-        Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(32.dp)
-                .background(RlColors.Paper)
-                .padding(horizontal = 26.dp),
+                .height(30.dp)
+                .padding(horizontal = RlDimens.pagePad),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(Modifier.width(7.dp).height(7.dp).background(RlColors.Ink))
+            // 活信号：冰青圆点 + 一圈柔光
+            Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.size(13.dp).wash(RlColors.AccentSoft))
+                Box(Modifier.size(5.dp).wash(RlColors.Accent))
+            }
             HGap(10.dp)
             LabelRaw(text = state.statusMessage, style = RlType.label(10.sp, RlColors.Ink))
             if (!compact) {
@@ -257,7 +262,7 @@ fun TelemetryRail(state: IdeState, clock: String, fps: Int, modifier: Modifier =
     Column(
         modifier
             .width(RlDimens.railWidth)
-            .padding(top = 4.dp, end = 16.dp),
+            .padding(top = 4.dp, end = RlDimens.pagePad),
         horizontalAlignment = Alignment.End,
     ) {
         LabelRaw(text = clock, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Ink))
@@ -276,7 +281,12 @@ fun TelemetryRail(state: IdeState, clock: String, fps: Int, modifier: Modifier =
             maxLines = 1,
         )
         Spacer(Modifier.height(4.dp))
-        Box(Modifier.width(26.dp).height(2.dp).background(RlColors.Ink))
+        Box(
+            Modifier
+                .width(26.dp)
+                .height(3.dp)
+                .wash(RlColors.Accent.copy(alpha = 0.75f)),
+        )
         Spacer(Modifier.height(14.dp))
     }
 }

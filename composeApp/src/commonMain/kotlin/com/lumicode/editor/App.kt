@@ -1,7 +1,6 @@
 package com.lumicode.editor
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -13,9 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -25,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -61,6 +59,7 @@ import com.lumicode.editor.ui.TelemetryRail
 import com.lumicode.editor.ui.TopBar
 import com.lumicode.editor.ui.outlineOf
 import com.lumicode.editor.ui.theme.RlColors
+import com.lumicode.editor.ui.theme.RlDimens
 import com.lumicode.editor.ui.theme.RlFonts
 import com.lumicode.editor.ui.theme.RlSettings
 import kotlinx.coroutines.delay
@@ -132,7 +131,11 @@ fun App(state: IdeState) {
     Box(
         Modifier
             .fillMaxSize()
-            .background(RlColors.Paper)
+            .background(
+                Brush.verticalGradient(
+                    listOf(RlColors.FieldTop, RlColors.Field, RlColors.FieldBottom),
+                ),
+            )
             .focusRequester(rootFocus)
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -233,38 +236,34 @@ fun App(state: IdeState) {
             Row(Modifier.weight(1f).fillMaxWidth()) {
                 if (state.explorerVisible && !compact) {
                     ExplorerPanel(state)
-                    VerticalHairline()
                 }
+                // 不再有"编辑卡片"：整个中栏就是一块连续的平面，
+                // 代码、标签、页脚都直接落在场上，只靠留白分区。
                 Column(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .padding(start = 18.dp, end = 18.dp, bottom = 14.dp),
+                        .padding(
+                            start = if (state.explorerVisible && !compact) RlDimens.seam else RlDimens.pagePad,
+                            end = RlDimens.pagePad,
+                            bottom = 10.dp,
+                        ),
                 ) {
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .border(1.dp, RlColors.Hair)
-                            .background(RlColors.Panel),
-                    ) {
-                        EditorPanel(state, onRun = { state.requestRun() }, compact = compact)
-                    }
+                    EditorPanel(
+                        state,
+                        onRun = { state.requestRun() },
+                        compact = compact,
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    )
                     if (state.outputVisible) {
-                        Spacer(Modifier.height(10.dp))
-                        Box(
-                            Modifier
-                                .height(190.dp)
-                                .fillMaxWidth()
-                                .border(1.dp, RlColors.Hair)
-                                .background(RlColors.PaperDeep),
-                        ) {
-                            OutputPanel(state)
-                        }
+                        Spacer(Modifier.height(RlDimens.seam))
+                        OutputPanel(
+                            state,
+                            modifier = Modifier.height(190.dp).fillMaxWidth(),
+                        )
                     }
                 }
                 if (state.referenceVisible && !compact) {
-                    VerticalHairline()
                     ReferencePanel(state)
                 }
                 if (!compact && RlSettings.showRail) TelemetryRail(state, clock, fps)
@@ -288,8 +287,8 @@ fun App(state: IdeState) {
             Row(
                 Modifier
                     .fillMaxHeight()
-                    .padding(top = 96.dp, bottom = 28.dp)
-                    .background(RlColors.Paper)
+                    .padding(top = 96.dp)
+                    .background(RlColors.Field)
                     .zIndex(2f),
             ) {
                 when {
@@ -311,9 +310,4 @@ fun App(state: IdeState) {
     LaunchedEffect(state.overlay, state.findVisible) {
         if (state.overlay == OverlayMode.NONE && !state.findVisible) rootFocus.requestFocus()
     }
-}
-
-@Composable
-private fun VerticalHairline() {
-    Box(Modifier.width(1.dp).fillMaxHeight().background(RlColors.Hair))
 }

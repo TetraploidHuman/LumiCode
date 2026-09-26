@@ -6,10 +6,13 @@
     <title>LUMICODE — ANALYSIS OS</title>
     <style>
         :root {
-            --paper: #F1F1EF;
-            --ink: #121211;
-            --muted: #8C8C85;
-            --hair: #DBDBD5;
+            --field-top: #F6F8FB;
+            --field: #EFF2F6;
+            --field-bottom: #E9EDF3;
+            --ink: #0A0C10;
+            --muted: #868D96;
+            --faint: #B0B7C0;
+            --accent: #2C7C8F;
         }
 
         html, body {
@@ -18,8 +21,9 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background: var(--paper);
+            background: var(--field);
             color: var(--ink);
+            background-image: linear-gradient(var(--field-top), var(--field-bottom));
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             -webkit-font-smoothing: antialiased;
         }
@@ -42,17 +46,24 @@
             letter-spacing: -0.02em;
         }
 
+        #boot .title .soft {
+            font-weight: 400;
+            color: var(--muted);
+            letter-spacing: 0.06em;
+        }
+
         #boot .label {
             font-size: 9px;
             letter-spacing: 0.18em;
             text-transform: uppercase;
-            color: var(--muted);
+            color: var(--faint);
         }
 
+        /* 无界：没有框、没有圆角，只有一道渐隐的扫描光 */
         #boot .bar {
             width: 220px;
-            height: 1px;
-            background: var(--hair);
+            height: 2px;
+            background: var(--field-bottom);
             position: relative;
             overflow: hidden;
         }
@@ -62,9 +73,9 @@
             position: absolute;
             left: 0;
             top: 0;
-            height: 1px;
+            height: 2px;
             width: 40%;
-            background: var(--ink);
+            background: var(--accent);
             animation: scan 1.4s ease-in-out infinite;
         }
 
@@ -82,7 +93,7 @@
 </head>
 <body>
 <div id="boot">
-    <div class="title">LUMICODE</div>
+    <div class="title">LUMICODE <span class="soft">ANALYSIS OS</span></div>
     <div class="label">Synthesize information · mounting archive</div>
     <div class="bar"></div>
     <div class="label" id="bootStatus">wasm module loading …</div>

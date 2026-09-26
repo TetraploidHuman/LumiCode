@@ -1,7 +1,6 @@
 package com.lumicode.editor.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -11,7 +10,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -26,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
@@ -36,8 +35,34 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlType
+
+// ------------------------------------------------------------------ 无界几何
+//
+// 规则：没有卡片、没有圆角、没有描边、没有投影。
+// 整块界面是一个连续的平面，区域之间只靠留白和字号/字重区分。
+
+/**
+ * 通铺：一层极淡的色块，直角。
+ *
+ * 只用在「必须回应指针」的地方（hover / 选中 / 当前行），并且尽量淡到像光线扫过，
+ * 而不是像贴了一张卡片上去。
+ */
+fun Modifier.wash(color: Color): Modifier =
+    if (color == Color.Transparent) this else this.background(color)
+
+/** 强调刻度：一条直角冰青细条，用来标记"活的"位置。 */
+@Composable
+fun AccentTick(
+    modifier: Modifier = Modifier,
+    length: Dp = 26.dp,
+    thickness: Dp = 2.dp,
+    color: Color = RlColors.Accent,
+) {
+    Box(modifier.height(thickness).width(length).background(color))
+}
 
 /** Micro uppercase label — the most repeated element of the archive chrome. */
 @Composable
@@ -76,22 +101,7 @@ fun AnnotatedBody(text: AnnotatedString, modifier: Modifier = Modifier, style: T
     BasicText(text = text, modifier = modifier, style = style)
 }
 
-/** 1px hairline; the archive grid is built almost entirely from these. */
-@Composable
-fun Rule(
-    modifier: Modifier = Modifier,
-    color: Color = RlColors.Hair,
-    thickness: Dp = 1.dp,
-    vertical: Boolean = false,
-) {
-    if (vertical) {
-        Box(modifier.width(thickness).fillMaxHeight().background(color))
-    } else {
-        Box(modifier.height(thickness).fillMaxWidth().background(color))
-    }
-}
-
-/** Section header: micro label with a trailing hairline running to the edge. */
+/** Section header: micro label with a fading seam running to the edge. */
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier, trailing: String? = null) {
     Column(modifier) {
@@ -102,7 +112,11 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, trailing: String
                 Modifier
                     .height(1.dp)
                     .weight(1f)
-                    .background(RlColors.Hair),
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(RlColors.Hair, RlColors.Hair, Color.Transparent),
+                        ),
+                    ),
             )
             if (trailing != null) {
                 Spacer(Modifier.width(10.dp))
@@ -122,26 +136,24 @@ fun MetaBlock(label: String, value: String, modifier: Modifier = Modifier, value
     }
 }
 
-/** Small bordered box (ESC chip, status pill). */
+/** Small flat chip (ESC hint, shortcut). 直角、无描边。 */
 @Composable
 fun Chip(
     text: String,
     modifier: Modifier = Modifier,
-    borderColor: Color = RlColors.HairStrong,
+    fill: Color = RlColors.PaperDeep,
     textColor: Color = RlColors.Muted,
-    background: Color = Color.Transparent,
 ) {
     Box(
         modifier
-            .background(background)
-            .border(1.dp, borderColor)
-            .padding(horizontal = 5.dp, vertical = 2.dp),
+            .wash(fill)
+            .padding(horizontal = 7.dp, vertical = 3.dp),
     ) {
         Label(text, style = RlType.label(8.sp, textColor))
     }
 }
 
-/** Solid black bar with white micro text: "+ SAVE ARCHIVE ......... 收藏档案". */
+/** Solid bar button: 直角实心色块，hover 时点亮成冰青。 */
 @Composable
 fun SolidBarButton(
     text: String,
@@ -154,7 +166,7 @@ fun SolidBarButton(
     val hovered by interaction.collectIsHoveredAsState()
     val bg = when {
         !enabled -> RlColors.Faint
-        hovered -> Color(0xFF2C2C29)
+        hovered -> RlColors.AccentDeep
         else -> RlColors.Ink
     }
     Row(
@@ -171,12 +183,12 @@ fun SolidBarButton(
         BasicText(text.uppercase(), style = RlType.label(9.sp, Color.White))
         Spacer(Modifier.weight(1f))
         if (trailing != null) {
-            BasicText(trailing, style = RlType.label(9.sp, Color(0xFFB9B9B3)))
+            BasicText(trailing, style = RlType.label(9.sp, Color(0xFFB6BDC6)))
         }
     }
 }
 
-/** Ghost / text button used for secondary actions. */
+/** Ghost / text button used for secondary actions. Hover 时浮出一枚无边药丸。 */
 @Composable
 fun GhostButton(
     text: String,
@@ -187,22 +199,24 @@ fun GhostButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val tint = if (hovered) RlColors.Ink else RlColors.Muted
     Row(
         modifier
+            .wash(if (hovered) RlColors.FieldDeep else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
         if (glyph != null && glyphLeading) {
-            BasicText(glyph, style = RlType.mono.copy(color = if (hovered) RlColors.Ink else RlColors.Muted, fontSize = 11.sp))
+            BasicText(glyph, style = RlType.mono.copy(color = tint, fontSize = 11.sp))
             Spacer(Modifier.width(8.dp))
         }
-        Label(text, style = RlType.label(9.sp, if (hovered) RlColors.Ink else RlColors.Muted))
+        Label(text, style = RlType.label(9.sp, tint))
         if (glyph != null && !glyphLeading) {
             Spacer(Modifier.width(8.dp))
-            BasicText(glyph, style = RlType.mono.copy(color = if (hovered) RlColors.Ink else RlColors.Muted, fontSize = 11.sp))
+            BasicText(glyph, style = RlType.mono.copy(color = tint, fontSize = 11.sp))
         }
     }
 }

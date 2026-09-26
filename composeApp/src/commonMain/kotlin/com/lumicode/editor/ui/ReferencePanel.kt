@@ -34,10 +34,12 @@ import com.lumicode.editor.model.FileNode
 import com.lumicode.editor.platform.platformTag
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.OverlayMode
+import com.lumicode.editor.ui.components.AccentTick
 import com.lumicode.editor.ui.components.GhostButton
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
 import com.lumicode.editor.ui.components.SolidBarButton
+import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
 import com.lumicode.editor.ui.theme.RlType
@@ -51,12 +53,11 @@ fun ExplorerPanel(state: IdeState, showFooter: Boolean = true, modifier: Modifie
         modifier
             .width(RlDimens.explorerWidth)
             .fillMaxHeight()
-            .padding(start = 22.dp, top = 18.dp, end = 16.dp),
+            .padding(start = RlDimens.pagePad, top = 16.dp, end = 14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Label("工作区")
             Spacer(Modifier.width(8.dp))
-            Box(Modifier.height(1.dp).weight(1f).background(RlColors.Hair))
         }
         Spacer(Modifier.height(14.dp))
 
@@ -80,8 +81,7 @@ fun ExplorerPanel(state: IdeState, showFooter: Boolean = true, modifier: Modifie
         }
 
         if (!showFooter) return@Column
-        Spacer(Modifier.height(10.dp))
-        Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
+        Spacer(Modifier.height(12.dp))
         Spacer(Modifier.height(10.dp))
         GhostButton(
             text = "拖拽查看",
@@ -142,17 +142,18 @@ private fun TreeRow(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val background = when {
-        selected -> RlColors.PaperDeep
-        hovered -> RlColors.Panel
+        selected -> RlColors.FieldDeep
+        hovered -> RlColors.Field
         else -> Color.Transparent
     }
     Row(
         Modifier
             .fillMaxWidth()
-            .background(background)
+            .padding(horizontal = 4.dp, vertical = 1.dp)
+            .wash(background)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(start = (depth * 12).dp, top = 5.dp, bottom = 5.dp, end = 6.dp),
+            .padding(start = (depth * 12).dp + 6.dp, top = 5.dp, bottom = 5.dp, end = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         LabelRaw(
@@ -195,7 +196,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
         modifier
             .width(RlDimens.referenceWidth)
             .fillMaxHeight()
-            .padding(start = 18.dp, top = 18.dp, end = 22.dp),
+            .padding(start = 14.dp, top = 16.dp, end = RlDimens.pagePad),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
@@ -230,7 +231,11 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
             Label("机构档案")
         }
         Spacer(Modifier.height(14.dp))
-        Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Ink))
+        // 标题下的重线改成"冰青渐隐"，不再是横贯的一条黑杠
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            AccentTick(length = 46.dp)
+            Spacer(Modifier.width(2.dp))
+        }
         Spacer(Modifier.height(18.dp))
 
         if (file == null) {
@@ -278,14 +283,13 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                         Spacer(Modifier.height(7.dp))
                         Box(
                             Modifier
-                                .height(if (active) 1.5.dp else 1.dp)
-                                .fillMaxWidth()
-                                .background(if (active) RlColors.Ink else Color.Transparent),
+                                .height(2.dp)
+                                .width(22.dp)
+                                .wash(if (active) RlColors.Accent else Color.Transparent),
                         )
                     }
                 }
             }
-            Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
             Spacer(Modifier.height(16.dp))
 
             Column(Modifier.fillMaxWidth()) {
@@ -378,7 +382,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
             Spacer(Modifier.weight(1f))
             LabelRaw(text = "由 LUMICODE 驱动", style = RlType.label(10.sp, RlColors.Ink))
             Spacer(Modifier.width(6.dp))
-            Box(Modifier.size(width = 26.dp, height = 3.dp).background(RlColors.Ink))
+            Box(Modifier.size(width = 26.dp, height = 3.dp).wash(RlColors.Accent))
         }
         Spacer(Modifier.height(12.dp))
     }

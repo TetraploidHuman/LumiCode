@@ -1,6 +1,5 @@
 package com.lumicode.editor.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -46,10 +45,10 @@ import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.lumicode.editor.model.Language
 import com.lumicode.editor.state.LineKind
 import com.lumicode.editor.syntax.SyntaxHighlighter
+import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
 import com.lumicode.editor.ui.theme.RlSettings
@@ -131,7 +130,7 @@ fun CodeEditor(
         }
     }
 
-    BoxWithConstraints(modifier.fillMaxSize().background(RlColors.Panel)) {
+    BoxWithConstraints(modifier.fillMaxSize()) {
         val lineCount = value.text.count { it == '\n' } + 1
         val showLineNumbers = RlSettings.showLineNumbers
         val gutterWidth = if (showLineNumbers) RlDimens.gutterWidth else 0.dp
@@ -190,7 +189,7 @@ fun CodeEditor(
                                             .align(Alignment.CenterEnd)
                                             .padding(end = 12.dp),
                                         style = RlType.codeGutter.copy(
-                                            color = if (isActive) RlColors.Ink else RlColors.Faint,
+                                            color = if (isActive) RlColors.Accent else RlColors.Faint,
                                         ),
                                     )
                                     if (marker != null) {
@@ -199,28 +198,25 @@ fun CodeEditor(
                                                 .align(Alignment.CenterEnd)
                                                 .padding(end = 3.dp)
                                                 .size(4.dp)
-                                                .background(
-                                                    when (marker) {
+                                                .wash(when (marker) {
                                                         LineKind.ERROR -> RlColors.Ink
                                                         LineKind.WARN -> RlColors.Muted
                                                         else -> RlColors.Faint
-                                                    },
-                                                ),
+                                                    }),
                                         )
                                     }
                                 }
                             }
                         }
-                        // 侧边高亮：跟着光标行平滑移动
+                        // 侧边高亮：跟着光标行平滑移动，冰青小条
                         Box(
                             Modifier
                                 .offset(y = RlDimens.codePaddingTop + lineOffset + 3.dp)
                                 .width(3.dp)
                                 .height((lineHeight - 6.dp).coerceAtLeast(4.dp))
-                                .background(RlColors.Ink),
+                                .wash(RlColors.Accent),
                         )
                     }
-                    Box(Modifier.width(1.dp).fillMaxHeight().background(RlColors.Hair))
                 }
 
                 // --------------------------------------------------------- code
@@ -229,13 +225,14 @@ fun CodeEditor(
                         .weight(1f)
                         .fillMaxHeight(),
                 ) {
-                    // 当前行高亮带（跟随光标滑动）
+                    // 当前行：一道横贯整块的极淡冰青，没有圆角、没有边框。
+                    // 它读起来像"光扫过这一行"，而不是"选中了一个盒子"。
                     Box(
                         Modifier
                             .offset(y = RlDimens.codePaddingTop + lineOffset)
                             .fillMaxWidth()
                             .height(lineHeight)
-                            .background(RlColors.PaperDeep.copy(alpha = 0.6f)),
+                            .wash(RlColors.AccentSoft),
                     )
                     BasicTextField(
                         value = value,
@@ -250,7 +247,7 @@ fun CodeEditor(
                             )
                         },
                         textStyle = RlType.code,
-                        cursorBrush = SolidColor(RlColors.Ink),
+                        cursorBrush = SolidColor(RlColors.Accent),
                         onTextLayout = { result ->
                             // 用真实布局量行距，避免依赖字体度量（内置字体是异步加载的）
                             val measured = when {

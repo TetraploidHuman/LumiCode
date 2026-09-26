@@ -1,7 +1,6 @@
 package com.lumicode.editor.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -51,7 +50,7 @@ import com.lumicode.editor.ui.components.GhostButton
 import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
-import com.lumicode.editor.ui.components.Rule
+import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlType
 
@@ -66,19 +65,12 @@ fun EditorPanel(
     compact: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier
-            .fillMaxHeight()
-            .background(RlColors.Panel),
-    ) {
+    Column(modifier.fillMaxHeight()) {
         TabStrip(state, compact)
-        Rule()
         Breadcrumb(state)
-        Rule()
 
         if (state.findVisible) {
             FindBar(state, compact)
-            Rule()
         }
 
         val active = state.activePath
@@ -109,7 +101,6 @@ fun EditorPanel(
             )
         }
 
-        Rule()
         EditorFooter(state, onRun, compact)
     }
 }
@@ -119,8 +110,7 @@ private fun TabStrip(state: IdeState, compact: Boolean) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(38.dp)
-            .background(RlColors.Panel),
+            .height(38.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(Modifier.weight(1f).fillMaxHeight()) {
@@ -132,12 +122,16 @@ private fun TabStrip(state: IdeState, compact: Boolean) {
                 Row(
                     Modifier
                         .fillMaxHeight()
-                        .background(if (active) RlColors.Paper else Color.Transparent)
                         .hoverable(interaction)
                         .clickable(interactionSource = interaction, indication = null) { state.open(path) }
-                        .padding(horizontal = 14.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    // 活动标签：一枚方形冰青刻度，没有底色也没有下划线
+                    if (active) {
+                        Box(Modifier.size(5.dp).wash(RlColors.Accent))
+                        HGap(9.dp)
+                    }
                     BasicText(
                         text = name,
                         style = RlType.mono.copy(
@@ -153,7 +147,7 @@ private fun TabStrip(state: IdeState, compact: Boolean) {
                     )
                     if (state.isDirty(path)) {
                         HGap(7.dp)
-                        Box(Modifier.size(4.dp).background(RlColors.Ink))
+                        Box(Modifier.size(4.dp).wash(RlColors.Accent.copy(alpha = 0.6f)))
                     }
                     HGap(9.dp)
                     Box(
@@ -169,12 +163,6 @@ private fun TabStrip(state: IdeState, compact: Boolean) {
                             ),
                         )
                     }
-                    Box(
-                        Modifier
-                            .width(1.dp)
-                            .height(38.dp)
-                            .background(RlColors.Hair),
-                    )
                 }
             }
         }
@@ -217,9 +205,7 @@ private fun Breadcrumb(state: IdeState) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(32.dp)
-            .background(RlColors.Panel)
-            .padding(horizontal = 14.dp),
+            .height(34.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         LabelRaw(text = "←", style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Muted))
@@ -259,75 +245,74 @@ private fun FindBar(state: IdeState, compact: Boolean) {
     val matches = SyntaxHighlighter.countMatches(state.activeContent, state.findQuery)
     LaunchedEffect(Unit) { focus.requestFocus() }
 
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .height(34.dp)
-            .background(RlColors.PaperDeep)
-            .padding(horizontal = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (!compact) {
-            Label("查找")
-            HGap(14.dp)
-        }
-        BasicTextField(
-            value = TextFieldValue(state.findQuery, TextRange(state.findQuery.length)),
-            onValueChange = {
-                state.findQuery = it.text
-                state.findActiveMatch = 0
-            },
-            singleLine = true,
-            textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink),
-            cursorBrush = SolidColor(RlColors.Ink),
-            modifier = Modifier
-                .then(if (compact) Modifier.weight(1f) else Modifier.width(240.dp))
-                .focusRequester(focus)
-                .onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    when (event.key) {
-                        Key.Enter -> {
-                            if (matches > 0) state.findActiveMatch = (state.findActiveMatch + 1) % matches
-                            true
-                        }
+    // 查找不再是一条"框"：只有一行文字和一条冰青光标
+    Box(Modifier.fillMaxWidth().height(46.dp)) {
+        Row(
+            Modifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!compact) {
+                Label("查找", style = RlType.label(9.5.sp, RlColors.AccentDeep))
+                HGap(14.dp)
+            }
+            BasicTextField(
+                value = TextFieldValue(state.findQuery, TextRange(state.findQuery.length)),
+                onValueChange = {
+                    state.findQuery = it.text
+                    state.findActiveMatch = 0
+                },
+                singleLine = true,
+                textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink),
+                cursorBrush = SolidColor(RlColors.Accent),
+                modifier = Modifier
+                    .then(if (compact) Modifier.weight(1f) else Modifier.width(240.dp))
+                    .focusRequester(focus)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.Enter -> {
+                                if (matches > 0) state.findActiveMatch = (state.findActiveMatch + 1) % matches
+                                true
+                            }
 
-                        Key.Escape -> {
-                            state.findVisible = false
-                            true
-                        }
+                            Key.Escape -> {
+                                state.findVisible = false
+                                true
+                            }
 
-                        else -> false
+                            else -> false
+                        }
+                    },
+                decorationBox = { inner ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { inner() }
                     }
                 },
-            decorationBox = { inner ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.weight(1f)) { inner() }
-                }
-            },
-        )
-        HGap(14.dp)
-        LabelRaw(
-            text = if (matches == 0) "000 / 000" else "${(state.findActiveMatch + 1).toString().padStart(3, '0')} / ${matches.toString().padStart(3, '0')}",
-            style = RlType.mono.copy(fontSize = 11.5.sp, color = if (matches == 0) RlColors.Faint else RlColors.Ink),
-        )
-        if (!compact) Spacer(Modifier.weight(1f))
-        HGap(12.dp)
-        GhostButton(text = if (compact) "" else "下一个", glyph = "→", glyphLeading = false, onClick = {
-            if (matches > 0) state.findActiveMatch = (state.findActiveMatch + 1) % matches
-        })
-        HGap(if (compact) 8.dp else 16.dp)
-        GhostButton(
-            text = if (compact) "" else "关闭",
-            glyph = "×",
-            glyphLeading = false,
-            onClick = { state.findVisible = false },
-        )
+            )
+            HGap(14.dp)
+            LabelRaw(
+                text = if (matches == 0) "000 / 000" else "${(state.findActiveMatch + 1).toString().padStart(3, '0')} / ${matches.toString().padStart(3, '0')}",
+                style = RlType.mono.copy(fontSize = 11.5.sp, color = if (matches == 0) RlColors.Faint else RlColors.AccentDeep),
+            )
+            if (!compact) Spacer(Modifier.weight(1f))
+            HGap(12.dp)
+            GhostButton(text = if (compact) "" else "下一个", glyph = "→", glyphLeading = false, onClick = {
+                if (matches > 0) state.findActiveMatch = (state.findActiveMatch + 1) % matches
+            })
+            HGap(if (compact) 8.dp else 16.dp)
+            GhostButton(
+                text = if (compact) "" else "关闭",
+                glyph = "×",
+                glyphLeading = false,
+                onClick = { state.findVisible = false },
+            )
+        }
     }
 }
 
 @Composable
 private fun EmptyDocument() {
-    Box(Modifier.fillMaxSize().background(RlColors.Panel), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Label("未打开任何文档")
             Spacer(Modifier.height(8.dp))
@@ -341,26 +326,24 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(40.dp)
-            .background(RlColors.Panel)
-            .padding(horizontal = 14.dp),
+            .height(46.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val interaction = remember { MutableInteractionSource() }
         val hovered by interaction.collectIsHoveredAsState()
         Row(
             Modifier
-                .background(if (hovered) Color(0xFF2C2C29) else RlColors.Ink)
+                .wash(if (hovered) RlColors.AccentDeep else RlColors.Ink)
                 .hoverable(interaction)
                 .clickable(interactionSource = interaction, indication = null) { onRun() }
-                .padding(horizontal = 12.dp, vertical = 7.dp),
+                .padding(horizontal = 13.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             LabelRaw(text = "▶", style = RlType.mono.copy(fontSize = 11.sp, color = Color.White))
             HGap(9.dp)
             LabelRaw(text = "运行分析", style = RlType.label(10.sp, Color.White))
             HGap(16.dp)
-            LabelRaw(text = "F5", style = RlType.label(10.sp, Color(0xFFB9B9B3)))
+            LabelRaw(text = "F5", style = RlType.label(10.sp, Color(0xFFBAC2CB)))
         }
         HGap(if (compact) 10.dp else 16.dp)
         GhostButton(text = if (compact) "" else "保存", glyph = "⌘S", glyphLeading = false, onClick = {
@@ -397,15 +380,12 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
     Column(
         modifier
             .fillMaxWidth()
-            .height(188.dp)
-            .background(RlColors.PaperDeep),
+            .height(188.dp),
     ) {
-        Rule()
         Row(
             Modifier
                 .fillMaxWidth()
-                .height(32.dp)
-                .padding(start = 14.dp, end = 12.dp),
+                .height(38.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             listOf(
@@ -419,12 +399,12 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                         text = title,
                         style = RlType.label(10.sp, if (active) RlColors.Ink else RlColors.Faint),
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(7.dp))
                     Box(
                         Modifier
-                            .height(1.dp)
-                            .fillMaxWidth()
-                            .background(if (active) RlColors.Ink else Color.Transparent),
+                            .height(2.dp)
+                            .width(22.dp)
+                            .wash(if (active) RlColors.Accent else Color.Transparent),
                     )
                 }
             }
@@ -438,12 +418,11 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             HGap(16.dp)
             GhostButton(text = "隐藏", glyph = "×", glyphLeading = false, onClick = { state.outputVisible = false })
         }
-        Rule()
         Column(
             Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(start = 14.dp, top = 8.dp, end = 12.dp),
+                .padding(top = 6.dp),
         ) {
             when (tab) {
                 0 -> state.terminal.takeLast(9).forEach { line ->

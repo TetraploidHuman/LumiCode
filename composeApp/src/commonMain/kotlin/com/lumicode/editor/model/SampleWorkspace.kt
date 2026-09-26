@@ -132,8 +132,8 @@ object SampleWorkspace {
                 collection = "DRAWING SURFACE",
                 collectionCn = "绘制界面",
                 related = "Ifrit / Ptilopsis",
-                abstract = "绘制层与版式栅格。整个界面由 1 像素细线、微缩等宽标签与大写标题三层结构拼装，" +
-                    "不使用任何圆角与投影——那是档案的规则。",
+                abstract = "绘制层与版式栅格。整个界面是一块连续的冷调平面：没有卡片、没有圆角、没有描边，" +
+                    "区域之间只靠留白与字重区分，颜色只留给“活的”信号。",
             ),
             content = """
                 package lumicode.ui
@@ -144,7 +144,7 @@ object SampleWorkspace {
                 import androidx.compose.runtime.Composable
                 import androidx.compose.ui.Modifier
 
-                /** 所有面板悬浮其上的纸张底色。 */
+                /** 唯一的场：一整块连续底色，一直铺到窗口边缘。 */
                 @Composable
                 fun Viewport(
                     grid: Grid = Grid.Archive,
@@ -153,7 +153,7 @@ object SampleWorkspace {
                     Box(
                         Modifier
                             .fillMaxSize()
-                            .background(grid.paper),
+                            .background(grid.field),
                     ) {
                         content()
                     }
@@ -164,8 +164,8 @@ object SampleWorkspace {
                     Compact(6, 16),
                 }
 
-                /* FIXME: 细线应该对齐到物理像素 */
-                fun Modifier.hairline(): Modifier = this.background(Paper.rule)
+                /* 无界：区域之间不画线，层次只用极淡的一层色暗示 */
+                fun Modifier.layer(tone: Tone): Modifier = this.background(tone.wash)
             """.trimIndent(),
         ),
         CodeFile(
@@ -182,7 +182,7 @@ object SampleWorkspace {
             content = """
                 # LUMICODE — ANALYSIS OS
 
-                > 档案风格的代码编辑器：纸底、细线、微缩标签。
+                > 无界风格代码编辑器：一整块连续平面，只靠留白与字重分区。
 
                 ## Shortcuts
 
@@ -199,8 +199,9 @@ object SampleWorkspace {
                 ## Conventions
 
                 1. Every file carries an archive number `NO.xxx`.
-                2. Every panel is bounded by a single hairline.
-                3. Chroma is a last resort.
+                2. No panels, no cards, no rounded corners, no borders — one continuous field.
+                3. Whitespace and type weight do the dividing.
+                4. Chroma is reserved for live signals only.
 
                 <!-- TODO: 补充 Wasm 构建流程说明 -->
             """.trimIndent(),

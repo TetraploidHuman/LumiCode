@@ -1,7 +1,6 @@
 package com.lumicode.editor.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -31,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -51,6 +51,8 @@ import com.lumicode.editor.ui.components.Chip
 import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
+import com.lumicode.editor.ui.components.AccentTick
+import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlSettings
 import com.lumicode.editor.ui.theme.RlType
@@ -108,8 +110,6 @@ private fun SheetScaffold(
                 .width(if (compact) 0.dp else 700.dp)
                 .then(if (compact) Modifier.fillMaxWidth() else Modifier)
                 .heightIn(max = 640.dp)
-                .background(RlColors.Panel)
-                .border(1.dp, RlColors.HairStrong)
                 .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { },
         ) {
             Row(
@@ -118,6 +118,8 @@ private fun SheetScaffold(
                     .padding(horizontal = 20.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                AccentTick(length = 20.dp)
+                HGap(11.dp)
                 BasicText(title, style = RlType.sectionTitle.copy(fontSize = 17.sp))
                 HGap(12.dp)
                 LabelRaw(text = subtitle, style = RlType.label(10.sp, RlColors.Faint))
@@ -131,12 +133,11 @@ private fun SheetScaffold(
                 ) {
                     Chip(
                         text = "ESC",
-                        borderColor = if (escHovered) RlColors.Ink else RlColors.HairStrong,
-                        textColor = if (escHovered) RlColors.Ink else RlColors.Muted,
+                        fill = if (escHovered) RlColors.AccentSoft else RlColors.PaperDeep,
+                        textColor = if (escHovered) RlColors.AccentDeep else RlColors.Muted,
                     )
                 }
             }
-            Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Ink))
             Column(
                 Modifier
                     .weight(1f, fill = false)
@@ -215,8 +216,8 @@ private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact:
                 .padding(top = if (compact) 24.dp else 84.dp, start = 12.dp, end = 12.dp)
                 .width(if (compact) 0.dp else 660.dp)
                 .then(if (compact) Modifier.fillMaxWidth() else Modifier)
-                .background(RlColors.Panel)
-                .border(1.dp, RlColors.HairStrong)
+                .heightIn(max = 560.dp)
+                
                 .onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when (event.key) {
@@ -251,6 +252,8 @@ private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact:
                     .padding(horizontal = 20.dp, vertical = 15.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                AccentTick(length = 20.dp)
+                HGap(11.dp)
                 Label(
                     if (mode == OverlayMode.COMMAND_INDEX) "命令面板" else "快速打开",
                     style = RlType.label(11.sp, RlColors.Ink),
@@ -264,7 +267,7 @@ private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact:
                     },
                     singleLine = true,
                     textStyle = RlType.mono.copy(fontSize = 13.sp, color = RlColors.Ink),
-                    cursorBrush = SolidColor(RlColors.Ink),
+                    cursorBrush = SolidColor(RlColors.Accent),
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(focus),
@@ -290,7 +293,6 @@ private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact:
                     Chip(text = "ESC")
                 }
             }
-            Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Ink))
 
             Column(Modifier.fillMaxWidth().height(340.dp)) {
                 if (rows.isEmpty()) {
@@ -305,21 +307,28 @@ private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact:
                         Column(
                             Modifier
                                 .fillMaxWidth()
-                                .background(
-                                    when {
-                                        active -> RlColors.PaperDeep
-                                        hovered -> RlColors.Paper
+                                .padding(horizontal = 10.dp, vertical = 2.dp)
+                                .wash(when {
+                                        active -> RlColors.AccentSoft
+                                        hovered -> RlColors.FieldDeep
                                         else -> Color.Transparent
-                                    },
-                                )
+                                    })
                                 .hoverable(interaction)
                                 .clickable(interactionSource = interaction, indication = null) {
                                     row.action()
                                     state.overlay = OverlayMode.NONE
                                 }
-                                .padding(horizontal = 20.dp, vertical = 10.dp),
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
+                                // 选中项：一枚冰青小条，比反白更「无界」
+                                Box(
+                                    Modifier
+                                        .width(3.dp)
+                                        .height(18.dp)
+                                        .wash(if (active) RlColors.Accent else Color.Transparent),
+                                )
+                                HGap(11.dp)
                                 LabelRaw(text = row.index, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
                                 HGap(14.dp)
                                 BasicText(
@@ -336,17 +345,15 @@ private fun PaletteOverlay(state: IdeState, commands: List<IdeCommand>, compact:
                                 Spacer(Modifier.weight(1f))
                                 LabelRaw(
                                     text = row.trailing,
-                                    style = RlType.label(10.sp, if (active) RlColors.Ink else RlColors.Muted),
+                                    style = RlType.label(10.sp, if (active) RlColors.AccentDeep else RlColors.Muted),
                                 )
                             }
                             Spacer(Modifier.height(3.dp))
                             LabelRaw(text = row.group, style = RlType.label(9.sp, RlColors.Faint))
                         }
-                        Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
                     }
                 }
             }
-            Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -427,7 +434,14 @@ private fun SettingSection(title: String) {
     Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Label(title, style = RlType.label(10.sp, RlColors.Ink))
         HGap(10.dp)
-        Box(Modifier.height(1.dp).weight(1f).background(RlColors.Hair))
+        Box(
+            Modifier
+                .height(1.dp)
+                .weight(1f)
+                .background(
+                    Brush.horizontalGradient(listOf(RlColors.Hair, Color.Transparent)),
+                ),
+        )
     }
 }
 
@@ -469,15 +483,17 @@ private fun StepperButton(glyph: String, onClick: () -> Unit) {
     val hovered by interaction.collectIsHoveredAsState()
     Box(
         Modifier
-            .border(1.dp, if (hovered) RlColors.Ink else RlColors.HairStrong)
-            .background(if (hovered) RlColors.PaperDeep else Color.Transparent)
+            .wash(if (hovered) RlColors.AccentSoft else RlColors.FieldDeep)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .width(28.dp)
-            .height(24.dp),
+            .width(30.dp)
+            .height(26.dp),
         contentAlignment = Alignment.Center,
     ) {
-        LabelRaw(text = glyph, style = RlType.mono.copy(fontSize = 13.sp, color = RlColors.Ink))
+        LabelRaw(
+            text = glyph,
+            style = RlType.mono.copy(fontSize = 13.sp, color = if (hovered) RlColors.AccentDeep else RlColors.Ink),
+        )
     }
 }
 
@@ -497,11 +513,14 @@ private fun ChoiceRow(
                 val hovered by interaction.collectIsHoveredAsState()
                 Box(
                     Modifier
-                        .background(if (active) RlColors.Ink else if (hovered) RlColors.PaperDeep else Color.Transparent)
-                        .border(1.dp, if (active) RlColors.Ink else RlColors.HairStrong)
+                        .wash(when {
+                                active -> RlColors.Ink
+                                hovered -> RlColors.FieldDeep
+                                else -> RlColors.Field.copy(alpha = 0.7f)
+                            })
                         .hoverable(interaction)
                         .clickable(interactionSource = interaction, indication = null) { onSelect(value) }
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                        .padding(horizontal = 12.dp, vertical = 5.dp),
                 ) {
                     LabelRaw(
                         text = text,
@@ -522,20 +541,26 @@ private fun ToggleRow(label: String, hint: String, checked: Boolean, onChange: (
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
                 text = if (checked) "开启" else "关闭",
-                style = RlType.label(10.sp, if (checked) RlColors.Ink else RlColors.Faint),
+                style = RlType.label(10.sp, if (checked) RlColors.AccentDeep else RlColors.Faint),
             )
             HGap(10.dp)
             val interaction = remember { MutableInteractionSource() }
             Box(
                 Modifier
-                    .width(42.dp)
-                    .height(18.dp)
-                    .background(if (checked) RlColors.Ink else RlColors.HairStrong)
+                    .width(44.dp)
+                    .height(20.dp)
+                    .wash(if (checked) RlColors.Accent else RlColors.HairStrong)
                     .hoverable(interaction)
                     .clickable(interactionSource = interaction, indication = null) { onChange(!checked) },
                 contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
             ) {
-                Box(Modifier.padding(horizontal = 2.dp).width(14.dp).height(14.dp).background(RlColors.Panel))
+                Box(
+                    Modifier
+                        .padding(horizontal = 3.dp)
+                        .width(14.dp)
+                        .height(14.dp)
+                        .wash(RlColors.Panel),
+                )
             }
         }
     }
@@ -548,10 +573,11 @@ private fun ActionRow(label: String, hint: String, trailing: String, onClick: ()
     Row(
         Modifier
             .fillMaxWidth()
-            .background(if (hovered) RlColors.Paper else Color.Transparent)
+            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .wash(if (hovered) RlColors.FieldDeep else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(vertical = 8.dp),
+            .padding(horizontal = 6.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -560,7 +586,10 @@ private fun ActionRow(label: String, hint: String, trailing: String, onClick: ()
             LabelRaw(text = hint, style = RlType.label(9.5.sp, RlColors.Faint))
         }
         HGap(16.dp)
-        LabelRaw(text = "→", style = RlType.mono.copy(fontSize = 13.sp, color = RlColors.InkSoft))
+        LabelRaw(
+            text = "→",
+            style = RlType.mono.copy(fontSize = 13.sp, color = if (hovered) RlColors.Accent else RlColors.InkSoft),
+        )
     }
 }
 
@@ -595,7 +624,6 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
             StatBlock("已保存次数", state.savedCount.toString())
         }
         Spacer(Modifier.height(16.dp))
-        Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
         Spacer(Modifier.height(12.dp))
 
         Label("文档（点击打开）", style = RlType.label(10.sp, RlColors.Ink))
@@ -606,13 +634,14 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .background(if (hovered) RlColors.Paper else Color.Transparent)
+                    .padding(horizontal = 8.dp)
+                    .wash(if (hovered) RlColors.FieldDeep else Color.Transparent)
                     .hoverable(interaction)
                     .clickable(interactionSource = interaction, indication = null) {
                         state.open(path)
                         state.overlay = OverlayMode.NONE
                     }
-                    .padding(vertical = 5.dp),
+                    .padding(horizontal = 8.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LabelRaw(
@@ -638,7 +667,6 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
         }
 
         Spacer(Modifier.height(14.dp))
-        Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
         Spacer(Modifier.height(12.dp))
         Label("最近操作", style = RlType.label(10.sp, RlColors.Ink))
         Spacer(Modifier.height(8.dp))
@@ -651,7 +679,6 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
         }
 
         Spacer(Modifier.height(16.dp))
-        Box(Modifier.height(1.dp).fillMaxWidth().background(RlColors.Hair))
         Spacer(Modifier.height(12.dp))
         Label("快捷键", style = RlType.label(10.sp, RlColors.Ink))
         Spacer(Modifier.height(8.dp))

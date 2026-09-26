@@ -1,6 +1,5 @@
 package com.lumicode.editor.syntax
 
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -128,7 +127,7 @@ object SyntaxHighlighter {
                 val isActive = ordinal == activeMatch
                 addStyle(
                     SpanStyle(
-                        background = if (isActive) Color(0x33121211) else Color(0x14121211),
+                        background = if (isActive) RlColors.AccentSoft else RlColors.AccentGlow,
                         color = if (isActive) RlColors.Ink else RlColors.InkSoft,
                         fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
                     ),
