@@ -15,6 +15,23 @@ if [[ ! -f "$SRC/index.html" ]]; then
   exit 1
 fi
 
+# Kotlin/Wasm 的产物目录**不会清理历史哈希文件** —— 每构建一次就多留一个 ~2.3MB 的
+# 旧 .wasm，几十次之后 web 根目录会膨胀到几十 MB（全都白送给访问者）。
+# 这里只保留 composeApp.js 真正引用的那几个。
+if [[ -f "$SRC/composeApp.js" ]]; then
+  mapfile -t KEEP < <(grep -oE '[0-9a-f]{16,}\.wasm' "$SRC/composeApp.js" | sort -u)
+  shopt -s nullglob
+  PRUNED=0
+  for f in "$SRC"/*.wasm; do
+    base="$(basename "$f")"
+    used=0
+    for k in "${KEEP[@]}"; do [[ "$base" == "$k" ]] && used=1 && break; done
+    if [[ $used -eq 0 ]]; then rm -f "$f"; PRUNED=$((PRUNED + 1)); fi
+  done
+  shopt -u nullglob
+  [[ $PRUNED -gt 0 ]] && echo "==> 清理了 $PRUNED 个不再被引用的旧 .wasm"
+fi
+
 echo "==> 同步 $SRC -> $DEST"
 mkdir -p "$DEST"
 if command -v rsync >/dev/null 2>&1; then
