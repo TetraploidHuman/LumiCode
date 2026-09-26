@@ -23,6 +23,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumicode.editor.platform.platformLabel
+import com.lumicode.editor.LUMICODE_STAMP
+import com.lumicode.editor.LUMICODE_VERSION
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.OverlayMode
 import com.lumicode.editor.ui.components.AccentTick
@@ -33,7 +35,6 @@ import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
 import com.lumicode.editor.ui.components.wash
-import com.lumicode.editor.ui.theme.LUMICODE_BUILD
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
 import com.lumicode.editor.ui.theme.RlType
@@ -240,7 +241,12 @@ fun StatusBar(state: IdeState, clock: String, compact: Boolean = false, modifier
             LabelRaw(text = clock, style = RlType.label(10.sp, RlColors.Ink))
             if (!compact) {
                 HGap(18.dp)
-                LabelRaw(text = "v$LUMICODE_BUILD", style = RlType.label(10.sp, RlColors.Faint), maxLines = 1)
+                // 版本 + 构建戳：一眼分辨「你看的是不是最新构建」
+                LabelRaw(
+                    text = "v$LUMICODE_VERSION · $LUMICODE_STAMP",
+                    style = RlType.label(10.sp, RlColors.Muted),
+                    maxLines = 1,
+                )
                 HGap(18.dp)
                 LabelRaw(text = "重置会话", style = RlType.label(10.sp, RlColors.Faint), maxLines = 1)
             }
