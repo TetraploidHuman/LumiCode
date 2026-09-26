@@ -1,9 +1,11 @@
 package com.lumicode.editor
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
@@ -243,7 +245,20 @@ fun App(state: IdeState) {
             )
 
             Row(Modifier.weight(1f).fillMaxWidth()) {
-                if (state.explorerVisible && !compact) {
+                // 侧栏的出现/消失也走宽度动画：中栏是 weight(1f)，会跟着一起收放，
+                // 所以代码区是"被让出空间"而不是"被闪一下"
+                AnimatedVisibility(
+                    visible = state.explorerVisible && !compact,
+                    enter = expandHorizontally(
+                        animationSpec = RlMotion.enter(200),
+                        expandFrom = Alignment.Start,
+                    ) + fadeIn(RlMotion.enter(160)),
+                    exit = shrinkHorizontally(
+                        animationSpec = RlMotion.exit(150),
+                        shrinkTowards = Alignment.Start,
+                    ) + fadeOut(RlMotion.exit(90)),
+                    label = "explorer",
+                ) {
                     ExplorerPanel(state)
                 }
                 // 不再有"编辑卡片"：整个中栏就是一块连续的平面，
@@ -286,7 +301,18 @@ fun App(state: IdeState) {
                         }
                     }
                 }
-                if (state.referenceVisible && !compact) {
+                AnimatedVisibility(
+                    visible = state.referenceVisible && !compact,
+                    enter = expandHorizontally(
+                        animationSpec = RlMotion.enter(200),
+                        expandFrom = Alignment.End,
+                    ) + fadeIn(RlMotion.enter(160)),
+                    exit = shrinkHorizontally(
+                        animationSpec = RlMotion.exit(150),
+                        shrinkTowards = Alignment.End,
+                    ) + fadeOut(RlMotion.exit(90)),
+                    label = "reference",
+                ) {
                     ReferencePanel(state)
                 }
                 if (!compact && RlSettings.showRail) TelemetryRail(state, clock, fps)

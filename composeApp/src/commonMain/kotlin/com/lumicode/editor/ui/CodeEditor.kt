@@ -4,7 +4,6 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -45,7 +44,6 @@ import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.lumicode.editor.model.Language
 import com.lumicode.editor.state.LineKind
@@ -85,15 +83,13 @@ fun CodeEditor(
         mutableStateOf(with(density) { RlSettings.codeLineHeight.toPx() })
     }
     val lineHeight = with(density) { lineHeightPx.toDp() }
-    val verticalScroll = rememberScrollState()
-    val horizontalScroll = rememberScrollState()
-    val measurer = rememberTextMeasurer()
 
-    // 等宽字符宽度：字号变了要重新量，行号栏与横向滚动范围都靠它对齐
-    val charWidth = remember(measurer, RlSettings.codeFontSize) {
-        val measured = measurer.measure("0000000000", RlType.code)
-        (measured.size.width / 10f).toInt().coerceAtLeast(1)
-    }
+    // 视觉行模型：软换行会把一个逻辑行摊成多个视觉行。行号栏、当前行高亮带、
+    // 光标自动滚动都必须按「逻辑行占据的视觉范围」来定位，否则一换行就整体错位。
+    var lineTops by remember(path) { mutableStateOf<List<Float>>(emptyList()) }
+    var lineBottoms by remember(path) { mutableStateOf<List<Float>>(emptyList()) }
+    var layoutHeightPx by remember(path) { mutableStateOf(0f) }
+    val verticalScroll = rememberScrollState()
 
     var value by remember(path) { mutableStateOf(TextFieldValue(text, TextRange(0))) }
 
@@ -109,7 +105,6 @@ fun CodeEditor(
     LaunchedEffect(path) {
         value = TextFieldValue(text, TextRange(0))
         verticalScroll.scrollTo(0)
-        horizontalScroll.scrollTo(0)
     }
 
     // Keep the buffer in sync when the document changes from the outside (e.g. new file).
@@ -153,10 +148,17 @@ fun CodeEditor(
         val lineCount = value.text.count { it == '\n' } + 1
         val showLineNumbers = RlSettings.showLineNumbers
         val gutterWidth = if (showLineNumbers) RlDimens.gutterWidth else 0.dp
-        val contentHeight = RlDimens.codePaddingTop + lineHeight * lineCount + 28.dp
-        val longest = value.text.split('\n').maxOfOrNull { it.length } ?: 0
-        val codeWidth = with(density) { (charWidth * longest).toDp() } + RlDimens.codePaddingStart + 48.dp
-        val totalWidth = maxOf(maxWidth, gutterWidth + codeWidth)
+        // 布局还没回来时退化成等距，回来后立刻切到真实视觉位置
+        val fallbackTops = List(lineCount) { it * lineHeightPx }
+        val fallbackBottoms = List(lineCount) { (it + 1) * lineHeightPx }
+        val tops = if (lineTops.size == lineCount) lineTops else fallbackTops
+        val bottoms = if (lineBottoms.size == lineCount) lineBottoms else fallbackBottoms
+        val textHeight = if (layoutHeightPx > 0f) {
+            with(density) { layoutHeightPx.toDp() }
+        } else {
+            lineHeight * lineCount
+        }
+        val contentHeight = RlDimens.codePaddingTop + textHeight + 28.dp
         val totalHeight = maxOf(maxHeight, contentHeight)
 
         val activeLine = SyntaxHighlighter.lineOf(value.text, value.selection.start) + 1
@@ -164,9 +166,9 @@ fun CodeEditor(
         // 上下键（或输入）把光标移出可视区时自动滚动，保证光标行始终可见
         val cursorLineIndex = SyntaxHighlighter.lineOf(value.text, value.selection.start)
         val viewportHeightPx = with(density) { maxHeight.toPx() }
-        LaunchedEffect(cursorLineIndex, viewportHeightPx) {
-            val top = cursorLineIndex * lineHeightPx
-            val bottom = top + lineHeightPx
+        LaunchedEffect(cursorLineIndex, viewportHeightPx, tops, bottoms) {
+            val top = tops.getOrElse(cursorLineIndex) { cursorLineIndex * lineHeightPx }
+            val bottom = bottoms.getOrElse(cursorLineIndex) { top + lineHeightPx }
             val scroll = verticalScroll.value.toFloat()
             when {
                 top < scroll -> verticalScroll.scrollTo(top.toInt().coerceAtLeast(0))
@@ -175,20 +177,25 @@ fun CodeEditor(
             }
         }
 
-        // 光标移动时：行高亮带与侧边标记平滑滑过去，而不是瞬间跳
+        // 光标移动时：行高亮带与侧边标记平滑滑过去，而不是瞬间跳。
+        // 位置和高度都取当前逻辑行的真实视觉范围 —— 换行的行会整段被高亮。
+        val activeTopPx = tops.getOrElse(activeLine - 1) { (activeLine - 1) * lineHeightPx }
+        val activeBottomPx = bottoms.getOrElse(activeLine - 1) { activeTopPx + lineHeightPx }
         val lineOffset by animateDpAsState(
-            targetValue = lineHeight * (activeLine - 1),
+            targetValue = with(density) { activeTopPx.toDp() },
             animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
             label = "activeLineOffset",
         )
+        val activeSpan = with(density) { (activeBottomPx - activeTopPx).toDp() }
 
+        // 只有纵向滚动：长行一律软换行，代码永远完整可见。
+        // 行号栏按「逻辑行的视觉跨度」占位，所以换行的续行自然留空、编号不会错位。
         Box(
             Modifier
                 .fillMaxSize()
-                .verticalScroll(verticalScroll)
-                .horizontalScroll(horizontalScroll),
+                .verticalScroll(verticalScroll),
         ) {
-            Row(Modifier.size(totalWidth, totalHeight)) {
+            Row(Modifier.fillMaxWidth().height(totalHeight)) {
                 // ------------------------------------------------------- gutter
                 if (showLineNumbers) {
                     Box(Modifier.width(gutterWidth).fillMaxHeight()) {
@@ -201,28 +208,42 @@ fun CodeEditor(
                             for (line in 1..lineCount) {
                                 val isActive = line == activeLine
                                 val marker = problemLines[line]
-                                Box(Modifier.height(lineHeight).fillMaxWidth()) {
-                                    BasicText(
-                                        text = line.toString().padStart(3, '0'),
-                                        modifier = Modifier
-                                            .align(Alignment.CenterEnd)
-                                            .padding(end = 12.dp),
-                                        style = RlType.codeGutter.copy(
-                                            color = if (isActive) RlColors.Accent else RlColors.Faint,
-                                        ),
-                                    )
-                                    if (marker != null) {
-                                        Box(
-                                            Modifier
+                                // 行号占的是「这个逻辑行的全部视觉行」；换行产生的续行
+                                // 没有编号，也不会有东西挤上来 —— 编号与文本永远同步
+                                val span = with(density) {
+                                    (bottoms[line - 1] - tops[line - 1]).toDp()
+                                }.coerceAtLeast(lineHeight)
+                                Box(Modifier.height(span).fillMaxWidth()) {
+                                    Box(
+                                        Modifier
+                                            .align(Alignment.TopEnd)
+                                            .fillMaxWidth()
+                                            .height(lineHeight),
+                                    ) {
+                                        BasicText(
+                                            text = line.toString().padStart(3, '0'),
+                                            modifier = Modifier
                                                 .align(Alignment.CenterEnd)
-                                                .padding(end = 3.dp)
-                                                .size(4.dp)
-                                                .wash(when (marker) {
-                                                        LineKind.ERROR -> RlColors.Ink
-                                                        LineKind.WARN -> RlColors.Muted
-                                                        else -> RlColors.Faint
-                                                    }),
+                                                .padding(end = 12.dp),
+                                            style = RlType.codeGutter.copy(
+                                                color = if (isActive) RlColors.Accent else RlColors.Faint,
+                                            ),
                                         )
+                                        if (marker != null) {
+                                            Box(
+                                                Modifier
+                                                    .align(Alignment.CenterEnd)
+                                                    .padding(end = 3.dp)
+                                                    .size(4.dp)
+                                                    .wash(
+                                                        when (marker) {
+                                                            LineKind.ERROR -> RlColors.Ink
+                                                            LineKind.WARN -> RlColors.Muted
+                                                            else -> RlColors.Faint
+                                                        },
+                                                    ),
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -232,7 +253,7 @@ fun CodeEditor(
                             Modifier
                                 .offset(y = RlDimens.codePaddingTop + lineOffset + 3.dp)
                                 .width(3.dp)
-                                .height((lineHeight - 6.dp).coerceAtLeast(4.dp))
+                                .height((activeSpan - 6.dp).coerceAtLeast(4.dp))
                                 .wash(RlColors.Accent),
                         )
                     }
@@ -250,7 +271,7 @@ fun CodeEditor(
                         Modifier
                             .offset(y = RlDimens.codePaddingTop + lineOffset)
                             .fillMaxWidth()
-                            .height(lineHeight)
+                            .height(activeSpan)
                             .wash(RlColors.AccentSoft),
                     )
                     BasicTextField(
@@ -279,6 +300,27 @@ fun CodeEditor(
                             if (measured > 1f && kotlin.math.abs(measured - lineHeightPx) > 0.01f) {
                                 lineHeightPx = measured
                             }
+
+                            // 逐逻辑行问一次布局：它从哪个视觉行开始、到哪个视觉行结束
+                            val src = result.layoutInput.text
+                            val tops = ArrayList<Float>()
+                            val bottoms = ArrayList<Float>()
+                            var start = 0
+                            while (true) {
+                                val nl = src.indexOf('\n', start)
+                                val end = if (nl < 0) src.length else nl
+                                val first = result.getLineForOffset(start)
+                                val probe = if (end > start) end - 1 else start
+                                val last = result.getLineForOffset(probe)
+                                tops.add(result.getLineTop(first).toFloat())
+                                bottoms.add(result.getLineBottom(last).toFloat())
+                                if (nl < 0) break
+                                start = nl + 1
+                            }
+                            if (tops != lineTops) lineTops = tops
+                            if (bottoms != lineBottoms) lineBottoms = bottoms
+                            val h = result.size.height.toFloat()
+                            if (h != layoutHeightPx) layoutHeightPx = h
                         },
                         visualTransformation = VisualTransformation { annotated ->
                             if (annotated.text == value.text) {
