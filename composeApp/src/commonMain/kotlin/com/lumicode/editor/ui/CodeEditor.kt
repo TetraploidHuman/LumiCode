@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -39,11 +43,14 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import com.lumicode.editor.model.Language
 import com.lumicode.editor.state.LineKind
@@ -165,12 +172,18 @@ fun CodeEditor(
         val lineCount = value.text.count { it == '\n' } + 1
         val showLineNumbers = RlSettings.showLineNumbers
         val gutterWidth = if (showLineNumbers) RlDimens.gutterWidth else 0.dp
-        // 模型必须是「当前这份文本」算出来的；对不上（还没布局 / 刚换了文件）
-        // 就退回等距兜底，下一帧布局回来立刻切成真实视觉位置
-        val model = lineMap?.takeIf { it.text == value.text && it.size == lineCount }
-        val tops = model?.tops ?: List(lineCount) { it * lineHeightPx }
-        val bottoms = model?.bottoms ?: List(lineCount) { (it + 1) * lineHeightPx }
-        val textHeight = model?.let { with(density) { it.height.toDp() } } ?: (lineHeight * lineCount)
+        // 只要逻辑行数一致就沿用上一帧的模型。**绝不能因为"文本变了"就退回等距兜底** ——
+        // 敲一个字符时文本必然先变、布局后到，退回等距会让整列行号跳一下再跳回来，
+        // 那就是"每输入一个字符行号闪一次"。行数变了（回车/删行）才退回等距。
+        val stale = lineMap
+        val usable = stale != null && stale.size == lineCount
+        val tops = if (usable) stale!!.tops else List(lineCount) { it * lineHeightPx }
+        val bottoms = if (usable) stale!!.bottoms else List(lineCount) { (it + 1) * lineHeightPx }
+        val textHeight = if (usable) {
+            with(density) { stale!!.height.toDp() }
+        } else {
+            lineHeight * lineCount
+        }
         val contentHeight = RlDimens.codePaddingTop + textHeight + 28.dp
         val totalHeight = maxOf(maxHeight, contentHeight)
 
@@ -210,60 +223,69 @@ fun CodeEditor(
         ) {
             Row(Modifier.fillMaxWidth().height(totalHeight)) {
                 // ------------------------------------------------------- gutter
+                //
+                // 行号全部在 **draw 阶段**绘制，而不是用 Box + offset 在 layout 阶段定位。
+                //
+                // 原因：lineMap 是文本在 layout 阶段回写的。同一次 layout 里行号栏已经排完，
+                // 只能等下一帧才用上新值 —— 每敲一个字符都会闪一下。draw 阶段在 layout
+                // 之后，读到的必然是当前帧的最新值，零延迟。
                 if (showLineNumbers) {
-                    Box(
+                    val gutterMeasurer = rememberTextMeasurer()
+                    // 等宽字体，量一次 "000" 就能得到所有行号的宽度
+                    val numberWidth = remember(gutterMeasurer, RlSettings.codeFontSize) {
+                        gutterMeasurer.measure(AnnotatedString("000"), RlType.codeGutter)
+                            .size.width.toFloat()
+                    }
+                    Canvas(
                         Modifier
                             .width(gutterWidth)
                             .fillMaxHeight()
                             .padding(top = RlDimens.codePaddingTop),
                     ) {
-                        for (line in 1..lineCount) {
-                            val isActive = line == activeLine
-                            val marker = problemLines[line]
-                            // 行号**绝对定位**在真实视觉位置上，绝不累加行高。
-                            //
-                            // 为什么不能用 Column 累加：多段文本的度量里 bottoms[i] 会比
-                            // tops[i+1] 大 1px（取整），累加平均每行多吃 1px，几十行下来
-                            // 就会整体漂掉一行 —— 而高亮带用 tops 绝对定位却是准的，
-                            // 于是出现"高亮带对、行号错"的分裂现象。
-                            Box(
-                                Modifier
-                                    .offset(y = with(density) { tops[line - 1].toDp() })
-                                    .fillMaxWidth(),
-                            ) {
-                                BasicText(
-                                    text = line.toString().padStart(3, '0'),
-                                    modifier = Modifier
-                                        .align(Alignment.CenterEnd)
-                                        .padding(end = 12.dp),
-                                    style = RlType.codeGutter.copy(
-                                        color = if (isActive) RlColors.Accent else RlColors.Faint,
+                        val padEnd = 12.dp.toPx()
+                        val dot = 4.dp.toPx()
+                        val dotGap = 3.dp.toPx()
+                        val map = lineMap
+                        val t = if (map != null && map.size == lineCount) {
+                            map.tops
+                        } else {
+                            List(lineCount) { it * lineHeightPx }
+                        }
+                        for (i in 0 until lineCount) {
+                            val top = t.getOrElse(i) { i * lineHeightPx }
+                            // 画布外的行直接跳过：不然 drawText 会用「画布高度 - topLeft.y」
+                            // 当约束，一旦为负就抛 IllegalArgumentException 把整个界面带崩
+                            if (top < -lineHeightPx || top > size.height) continue
+                            drawText(
+                                textMeasurer = gutterMeasurer,
+                                text = (i + 1).toString().padStart(3, '0'),
+                                topLeft = Offset(size.width - padEnd - numberWidth, top),
+                                style = RlType.codeGutter.copy(
+                                    color = if (i + 1 == activeLine) RlColors.Accent else RlColors.Faint,
+                                ),
+                                // 显式给出排版尺寸，避免它自己去减 topLeft
+                                size = Size(numberWidth + 1f, lineHeightPx),
+                            )
+                            problemLines[i + 1]?.let { kind ->
+                                drawRect(
+                                    color = when (kind) {
+                                        LineKind.ERROR -> RlColors.Ink
+                                        LineKind.WARN -> RlColors.Muted
+                                        else -> RlColors.Faint
+                                    },
+                                    topLeft = Offset(
+                                        size.width - dotGap - dot,
+                                        top + (lineHeightPx - dot) / 2f,
                                     ),
+                                    size = Size(dot, dot),
                                 )
-                                if (marker != null) {
-                                    Box(
-                                        Modifier
-                                            .align(Alignment.CenterEnd)
-                                            .padding(end = 3.dp)
-                                            .size(4.dp)
-                                            .wash(
-                                                when (marker) {
-                                                    LineKind.ERROR -> RlColors.Ink
-                                                    LineKind.WARN -> RlColors.Muted
-                                                    else -> RlColors.Faint
-                                                },
-                                            ),
-                                    )
-                                }
                             }
                         }
-                        // 侧边高亮：跟着光标行平滑移动，冰青小条（同样绝对定位）
-                        Box(
-                            Modifier
-                                .offset(y = lineOffset + 3.dp)
-                                .width(3.dp)
-                                .height((activeSpan - 6.dp).coerceAtLeast(4.dp))
-                                .wash(RlColors.Accent),
+                        // 当前行侧边条：跟着光标行平滑移动的冰青小条
+                        drawRect(
+                            color = RlColors.Accent,
+                            topLeft = Offset(0f, lineOffset.toPx() + 3.dp.toPx()),
+                            size = Size(3.dp.toPx(), (activeSpan - 6.dp).coerceAtLeast(4.dp).toPx()),
                         )
                     }
                 }
@@ -272,17 +294,29 @@ fun CodeEditor(
                 Box(
                     Modifier
                         .weight(1f)
-                        .fillMaxHeight(),
+                        .fillMaxHeight()
+                        .drawBehind {
+                            val map = lineMap
+                            val t = if (map != null && map.size == lineCount) {
+                                map.tops
+                            } else {
+                                List(lineCount) { it * lineHeightPx }
+                            }
+                            val top = t.getOrElse(activeLine - 1) { (activeLine - 1) * lineHeightPx }
+                            val bottom = if (map != null && map.size == lineCount) {
+                                map.bottoms.getOrElse(activeLine - 1) { top + lineHeightPx }
+                            } else {
+                                top + lineHeightPx
+                            }
+                            drawRect(
+                                color = RlColors.AccentSoft,
+                                topLeft = Offset(0f, RlDimens.codePaddingTop.toPx() + lineOffset.toPx()),
+                                size = Size(size.width, (bottom - top)),
+                            )
+                        },
                 ) {
-                    // 当前行：一道横贯整块的极淡冰青，没有圆角、没有边框。
-                    // 它读起来像"光扫过这一行"，而不是"选中了一个盒子"。
-                    Box(
-                        Modifier
-                            .offset(y = RlDimens.codePaddingTop + lineOffset)
-                            .fillMaxWidth()
-                            .height(activeSpan)
-                            .wash(RlColors.AccentSoft),
-                    )
+                    // 当前行：一道横贯整块的极淡冰青。同样画在 draw 阶段，
+                    // 所以它和行号、侧边条永远读同一帧的数据，不会各错各的。
                     BasicTextField(
                         value = value,
                         onValueChange = { next ->

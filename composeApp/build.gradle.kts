@@ -7,7 +7,7 @@ import java.time.format.DateTimeFormatter
 // ---------------------------------------------------------------- 构建标识
 // 每次构建都会生成一个不同的戳（时间 + CI 上的 commit 短 SHA），
 // 显示在界面右下角 —— 这样「你看的是不是最新版本」一眼可辨，不用靠猜。
-val lumiVersion = "0.2.1"
+val lumiVersion = "0.2.2"
 val lumiStamp: String = run {
     // CI 上所有产物共用同一个 commit 短 SHA；本地构建用时间戳
     val sha = System.getenv("GITHUB_SHA")?.take(7).orEmpty()
@@ -101,8 +101,8 @@ android {
         applicationId = "com.lumicode.editor"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 3
-        versionName = "0.2.1"
+        versionCode = 4
+        versionName = "0.2.2"
     }
     packaging {
         resources {
