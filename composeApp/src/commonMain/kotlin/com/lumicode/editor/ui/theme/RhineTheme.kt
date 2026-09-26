@@ -211,11 +211,16 @@ object RlType {
         color = RlColors.CodeDefault,
     )
 
+    /**
+     * 行号。字号**必须和代码一致** —— 两者在同一个行框里居中时，字号不同会让基线
+     * 差 1px 左右（看起来就是"每一行都偏了一点"）。同字号则字体框高度、基线完全重合，
+     * 对齐是构造出来的，不靠补偿。视觉上靠颜色（Faint）+ 字距把它压成次要信息。
+     */
     val codeGutter: TextStyle get() = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
-        fontSize = (RlSettings.codeFontSize - 1.5f).sp,
-        letterSpacing = 0.02.em,
+        fontSize = RlSettings.codeFontSize.sp,
+        letterSpacing = 0.06.em,
         color = RlColors.Faint,
     )
 }
