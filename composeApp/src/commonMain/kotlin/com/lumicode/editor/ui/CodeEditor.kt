@@ -211,60 +211,56 @@ fun CodeEditor(
             Row(Modifier.fillMaxWidth().height(totalHeight)) {
                 // ------------------------------------------------------- gutter
                 if (showLineNumbers) {
-                    Box(Modifier.width(gutterWidth).fillMaxHeight()) {
-                        Column(
-                            Modifier
-                                .fillMaxSize()
-                                .padding(top = RlDimens.codePaddingTop),
-                            horizontalAlignment = Alignment.End,
-                        ) {
-                            for (line in 1..lineCount) {
-                                val isActive = line == activeLine
-                                val marker = problemLines[line]
-                                // 行号占的是「这个逻辑行的全部视觉行」；换行产生的续行
-                                // 没有编号，也不会有东西挤上来 —— 编号与文本永远同步
-                                val span = with(density) {
-                                    (bottoms[line - 1] - tops[line - 1]).toDp()
-                                }.coerceAtLeast(lineHeight)
-                                Box(Modifier.height(span).fillMaxWidth()) {
+                    Box(
+                        Modifier
+                            .width(gutterWidth)
+                            .fillMaxHeight()
+                            .padding(top = RlDimens.codePaddingTop),
+                    ) {
+                        for (line in 1..lineCount) {
+                            val isActive = line == activeLine
+                            val marker = problemLines[line]
+                            // 行号**绝对定位**在真实视觉位置上，绝不累加行高。
+                            //
+                            // 为什么不能用 Column 累加：多段文本的度量里 bottoms[i] 会比
+                            // tops[i+1] 大 1px（取整），累加平均每行多吃 1px，几十行下来
+                            // 就会整体漂掉一行 —— 而高亮带用 tops 绝对定位却是准的，
+                            // 于是出现"高亮带对、行号错"的分裂现象。
+                            Box(
+                                Modifier
+                                    .offset(y = with(density) { tops[line - 1].toDp() })
+                                    .fillMaxWidth(),
+                            ) {
+                                BasicText(
+                                    text = line.toString().padStart(3, '0'),
+                                    modifier = Modifier
+                                        .align(Alignment.CenterEnd)
+                                        .padding(end = 12.dp),
+                                    style = RlType.codeGutter.copy(
+                                        color = if (isActive) RlColors.Accent else RlColors.Faint,
+                                    ),
+                                )
+                                if (marker != null) {
                                     Box(
                                         Modifier
-                                            .align(Alignment.TopEnd)
-                                            .fillMaxWidth()
-                                            .height(lineHeight),
-                                    ) {
-                                        BasicText(
-                                            text = line.toString().padStart(3, '0'),
-                                            modifier = Modifier
-                                                .align(Alignment.CenterEnd)
-                                                .padding(end = 12.dp),
-                                            style = RlType.codeGutter.copy(
-                                                color = if (isActive) RlColors.Accent else RlColors.Faint,
+                                            .align(Alignment.CenterEnd)
+                                            .padding(end = 3.dp)
+                                            .size(4.dp)
+                                            .wash(
+                                                when (marker) {
+                                                    LineKind.ERROR -> RlColors.Ink
+                                                    LineKind.WARN -> RlColors.Muted
+                                                    else -> RlColors.Faint
+                                                },
                                             ),
-                                        )
-                                        if (marker != null) {
-                                            Box(
-                                                Modifier
-                                                    .align(Alignment.CenterEnd)
-                                                    .padding(end = 3.dp)
-                                                    .size(4.dp)
-                                                    .wash(
-                                                        when (marker) {
-                                                            LineKind.ERROR -> RlColors.Ink
-                                                            LineKind.WARN -> RlColors.Muted
-                                                            else -> RlColors.Faint
-                                                        },
-                                                    ),
-                                            )
-                                        }
-                                    }
+                                    )
                                 }
                             }
                         }
-                        // 侧边高亮：跟着光标行平滑移动，冰青小条
+                        // 侧边高亮：跟着光标行平滑移动，冰青小条（同样绝对定位）
                         Box(
                             Modifier
-                                .offset(y = RlDimens.codePaddingTop + lineOffset + 3.dp)
+                                .offset(y = lineOffset + 3.dp)
                                 .width(3.dp)
                                 .height((activeSpan - 6.dp).coerceAtLeast(4.dp))
                                 .wash(RlColors.Accent),
