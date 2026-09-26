@@ -2,7 +2,9 @@ package com.lumicode.editor.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -33,6 +35,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -404,6 +407,25 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
     }
 }
 
+/**
+ * 控制台里"新出现的一行"：淡入 + 从下往上 3dp。
+ *
+ * 只在首次组合时播一次；因为外层用行自己的 id 做 key，
+ * 已经显示过的行不会在列表平移时重播。
+ */
+@Composable
+private fun LineAppear(content: @Composable () -> Unit) {
+    val appear = remember { MutableTransitionState(false).apply { targetState = true } }
+    AnimatedVisibility(
+        visibleState = appear,
+        enter = fadeIn(RlMotion.enter(170)) + slideInVertically(RlMotion.enter(190)) { it / 3 },
+        exit = ExitTransition.None,
+        label = "lineAppear",
+    ) {
+        content()
+    }
+}
+
 /** Bottom analysis console: terminal, problems and the archival access log. */
 @Composable
 fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
@@ -429,7 +451,20 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                     1 -> state.problems.size
                     else -> state.log.size
                 }
-                LabelRaw(text = count.toString().padStart(3, '0'), style = RlType.label(10.sp, RlColors.Muted))
+                // 计数也跟着滚一下，而不是硬切
+                AnimatedContent(
+                    targetState = count,
+                    transitionSpec = {
+                        (fadeIn(RlMotion.enter(150)) + slideInVertically(RlMotion.enter(170)) { it / 3 }) togetherWith
+                            fadeOut(RlMotion.exit(90))
+                    },
+                    label = "consoleCount",
+                ) { value ->
+                    LabelRaw(
+                        text = value.toString().padStart(3, '0'),
+                        style = RlType.label(10.sp, RlColors.Muted),
+                    )
+                }
                 HGap(16.dp)
                 GhostButton(text = "隐藏", glyph = "×", glyphLeading = false, onClick = { state.outputVisible = false })
             },
@@ -452,24 +487,29 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             Column(Modifier.fillMaxSize().padding(top = 6.dp)) {
             when (current) {
                 0 -> state.terminal.takeLast(9).forEach { line ->
-                    Row(Modifier.fillMaxWidth()) {
-                        LabelRaw(text = line.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
-                        HGap(12.dp)
-                        BasicText(
-                            text = line.text,
-                            style = RlType.mono.copy(
-                                fontSize = 11.5.sp,
-                                color = when (line.kind) {
-                                    LineKind.OK -> RlColors.CodeString
-                                    LineKind.WARN -> RlColors.CodeAnnotation
-                                    LineKind.ERROR -> Color(0xFF8C3A2B)
-                                    LineKind.MUTED -> RlColors.Faint
-                                    else -> RlColors.InkSoft
-                                },
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                    // key 用行自己的序号：新行入场时才播动画，已经显示的行不会重播
+                    key(line.id) {
+                        LineAppear {
+                            Row(Modifier.fillMaxWidth()) {
+                                LabelRaw(text = line.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
+                                HGap(12.dp)
+                                BasicText(
+                                    text = line.text,
+                                    style = RlType.mono.copy(
+                                        fontSize = 11.5.sp,
+                                        color = when (line.kind) {
+                                            LineKind.OK -> RlColors.CodeString
+                                            LineKind.WARN -> RlColors.CodeAnnotation
+                                            LineKind.ERROR -> Color(0xFF8C3A2B)
+                                            LineKind.MUTED -> RlColors.Faint
+                                            else -> RlColors.InkSoft
+                                        },
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -477,8 +517,10 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                     Label("未发现问题 · 文档状态良好", style = RlType.label(10.sp, RlColors.Faint))
                 } else {
                     state.problems.take(7).forEach { problem ->
+                      key(problem.path, problem.line, problem.column) {
                         val rowInteraction = remember { MutableInteractionSource() }
                         val rowHovered by rowInteraction.collectIsHoveredAsState()
+                        LineAppear {
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -509,14 +551,20 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                                 style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.Muted),
                             )
                         }
+                        }
+                      }
                     }
                 }
 
                 else -> state.log.takeLast(8).forEach { entry ->
-                    Row(Modifier.fillMaxWidth()) {
-                        LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
-                        HGap(12.dp)
-                        LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft))
+                    key(entry.id) {
+                        LineAppear {
+                            Row(Modifier.fillMaxWidth()) {
+                                LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
+                                HGap(12.dp)
+                                LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft))
+                            }
+                        }
                     }
                 }
             }

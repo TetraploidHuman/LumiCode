@@ -176,6 +176,11 @@ private fun TreeCaret(folder: Boolean, open: Boolean, dirty: Boolean) {
             animationSpec = RlMotion.snap(),
             label = "caret",
         )
+        val caretInk by animateColorAsState(
+            targetValue = if (open) RlColors.Ink else RlColors.Muted,
+            animationSpec = RlMotion.enter(140),
+            label = "caretInk",
+        )
         Canvas(Modifier.size(9.dp).graphicsLayer { rotationZ = turn }) {
             val path = Path().apply {
                 moveTo(size.width * 0.30f, size.height * 0.16f)
@@ -183,7 +188,7 @@ private fun TreeCaret(folder: Boolean, open: Boolean, dirty: Boolean) {
                 lineTo(size.width * 0.30f, size.height * 0.84f)
                 close()
             }
-            drawPath(path, if (open) RlColors.Ink else RlColors.Muted)
+            drawPath(path, caretInk)
         }
     } else if (dirty) {
         Box(Modifier.size(4.dp).wash(RlColors.Accent))
@@ -205,16 +210,30 @@ private fun TreeRow(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val background = when {
-        selected -> RlColors.FieldDeep
-        hovered -> RlColors.Field
-        else -> Color.Transparent
-    }
+    // 选中 / 悬停不做硬切：底色和文字一起过渡，鼠标扫过时是一条光带而不是两个方块
+    val tint by animateColorAsState(
+        targetValue = when {
+            selected -> RlColors.FieldDeep
+            hovered -> RlColors.RowHover
+            else -> Color.Transparent
+        },
+        animationSpec = RlMotion.enter(140),
+        label = "treeTint",
+    )
+    val labelInk by animateColorAsState(
+        targetValue = when {
+            selected -> RlColors.Ink
+            hovered -> RlColors.InkSoft
+            else -> if (isFolder) RlColors.Muted else RlColors.InkSoft
+        },
+        animationSpec = RlMotion.enter(140),
+        label = "treeInk",
+    )
     Row(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp, vertical = 1.dp)
-            .wash(background)
+            .wash(tint)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(start = (depth * 12).dp + 6.dp, top = 5.dp, bottom = 5.dp, end = 6.dp),
@@ -224,9 +243,9 @@ private fun TreeRow(
         Spacer(Modifier.width(7.dp))
         BasicText(
             text = label,
-            style = (if (isFolder) RlType.label(10.sp, if (selected) RlColors.Ink else RlColors.Muted) else RlType.mono.copy(
+            style = (if (isFolder) RlType.label(10.sp, labelInk) else RlType.mono.copy(
                 fontSize = 12.sp,
-                color = if (selected) RlColors.Ink else RlColors.InkSoft,
+                color = labelInk,
             )),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

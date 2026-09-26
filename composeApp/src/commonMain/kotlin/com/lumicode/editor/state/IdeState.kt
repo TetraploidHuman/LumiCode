@@ -15,11 +15,12 @@ enum class OverlayMode { NONE, COMMAND_INDEX, QUICK_OPEN, SETTINGS, OVERVIEW }
 
 enum class LineKind { INFO, OK, WARN, ERROR, MUTED }
 
-data class TerminalLine(val time: String, val text: String, val kind: LineKind)
+/** id 是单调递增的序号：列表动画靠它认人，不靠下标（下标会随 takeLast 整体平移）。 */
+data class TerminalLine(val id: Long, val time: String, val text: String, val kind: LineKind)
 
 data class Problem(val path: String, val line: Int, val column: Int, val message: String, val severity: LineKind)
 
-data class LogEntry(val time: String, val text: String)
+data class LogEntry(val id: Long, val time: String, val text: String)
 
 /**
  * The whole editor state tree. Plain Compose state — no platform dependencies,
@@ -68,6 +69,9 @@ class IdeState(initialFiles: List<CodeFile>) {
 
     private val expanded = mutableStateMapOf<String, Boolean>()
     private var untitledCounter = 0
+
+    /** 终端行 / 日志条目的单调序号，供列表入场动画做稳定的 key。 */
+    private var entrySeq = 0L
 
     init {
         initialFiles.forEach {
@@ -213,12 +217,12 @@ class IdeState(initialFiles: List<CodeFile>) {
     // -------------------------------------------------------------- console
 
     fun appendTerminal(text: String, kind: LineKind = LineKind.INFO) {
-        terminal.add(TerminalLine(clockLabel(), text, kind))
+        terminal.add(TerminalLine(entrySeq++, clockLabel(), text, kind))
         while (terminal.size > 200) terminal.removeAt(0)
     }
 
     fun appendLog(text: String) {
-        log.add(LogEntry(clockLabel(), text))
+        log.add(LogEntry(entrySeq++, clockLabel(), text))
         while (log.size > 60) log.removeAt(0)
     }
 

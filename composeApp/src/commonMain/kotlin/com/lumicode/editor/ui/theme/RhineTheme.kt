@@ -28,8 +28,10 @@ object RlColors {
     val Field = Color(0xFFEFF2F6)
     val FieldTop = Color(0xFFF6F8FB)
     val FieldBottom = Color(0xFFE9EDF3)
-    /** 场里再深一档：hover / 当前行 / 内嵌元素用的那"一层色"。 */
+    /** 场里再深一档：当前行 / 内嵌元素用的那"一层色"。 */
     val FieldDeep = Color(0xFFE3E8EF)
+    /** 列表行的悬停色：必须比场明显深一档，否则"动了但看不见"。 */
+    val RowHover = Color(0xFFE6EAF1)
 
     // 兼容旧命名：全部指向同一块场，界面里不再有"面板"这一概念。
     val Paper = Field

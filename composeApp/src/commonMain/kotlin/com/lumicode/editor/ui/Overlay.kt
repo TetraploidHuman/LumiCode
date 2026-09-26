@@ -544,7 +544,7 @@ private fun ChoiceRow(
                         .wash(when {
                                 active -> RlColors.Ink
                                 hovered -> RlColors.FieldDeep
-                                else -> RlColors.Field.copy(alpha = 0.7f)
+                                else -> RlColors.FieldDeep.copy(alpha = 0.55f)
                             })
                         .hoverable(interaction)
                         .clickable(interactionSource = interaction, indication = null) { onSelect(value) }

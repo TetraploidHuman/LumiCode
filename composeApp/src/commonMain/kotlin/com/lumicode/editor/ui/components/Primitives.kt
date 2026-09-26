@@ -2,6 +2,7 @@ package com.lumicode.editor.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -62,8 +63,7 @@ import com.lumicode.editor.ui.theme.RlType
  * 只用在「必须回应指针」的地方（hover / 选中 / 当前行），并且尽量淡到像光线扫过，
  * 而不是像贴了一张卡片上去。
  */
-fun Modifier.wash(color: Color): Modifier =
-    if (color == Color.Transparent) this else this.background(color)
+fun Modifier.wash(color: Color): Modifier = this.background(color)
 
 /** 强调刻度：一条直角冰青细条，用来标记"活的"位置。 */
 @Composable
@@ -143,12 +143,18 @@ fun TabRow(
                         .hoverable(interaction)
                         .clickable(interactionSource = interaction, indication = null) { onSelect(index) },
                 ) {
-                    // hover 反馈：一层极淡的色，**从文字框向四周外扩**。
+                    // hover 反馈：一层极淡的色，**从文字框向四周外扩**，并且淡入淡出。
                     // 文字本身一动不动，所以标签永远落在面板的对齐线上。
-                    if (hovered && index != selected) {
+                    val block by animateFloatAsState(
+                        targetValue = if (hovered && index != selected) 1f else 0f,
+                        animationSpec = RlMotion.enter(130),
+                        label = "tabBlock",
+                    )
+                    if (block > 0.01f) {
                         Canvas(Modifier.matchParentSize()) {
                             drawRect(
                                 color = RlColors.FieldDeep,
+                                alpha = block,
                                 topLeft = Offset(-padX, -padY),
                                 size = Size(size.width + padX * 2f, size.height + padY * 2f),
                             )
@@ -265,9 +271,10 @@ fun Chip(
     fill: Color = RlColors.PaperDeep,
     textColor: Color = RlColors.Muted,
 ) {
+    val bg by animateColorAsState(targetValue = fill, animationSpec = RlMotion.enter(130), label = "chipFill")
     Box(
         modifier
-            .wash(fill)
+            .wash(bg)
             .padding(horizontal = 7.dp, vertical = 3.dp),
     ) {
         Label(text, style = RlType.label(8.sp, textColor))
@@ -285,11 +292,15 @@ fun SolidBarButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val bg = when {
-        !enabled -> RlColors.Faint
-        hovered -> RlColors.AccentDeep
-        else -> RlColors.Ink
-    }
+    val bg by animateColorAsState(
+        targetValue = when {
+            !enabled -> RlColors.Faint
+            hovered -> RlColors.AccentDeep
+            else -> RlColors.Ink
+        },
+        animationSpec = RlMotion.enter(130),
+        label = "solidBar",
+    )
     Row(
         modifier
             .fillMaxWidth()
@@ -320,10 +331,19 @@ fun GhostButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val tint = if (hovered) RlColors.Ink else RlColors.Muted
+    val tint by animateColorAsState(
+        targetValue = if (hovered) RlColors.Ink else RlColors.Muted,
+        animationSpec = RlMotion.enter(130),
+        label = "ghostTint",
+    )
+    val bg by animateColorAsState(
+        targetValue = if (hovered) RlColors.FieldDeep else Color.Transparent,
+        animationSpec = RlMotion.enter(130),
+        label = "ghostBg",
+    )
     Row(
         modifier
-            .wash(if (hovered) RlColors.FieldDeep else Color.Transparent)
+            .wash(bg)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 8.dp, vertical = 5.dp),
