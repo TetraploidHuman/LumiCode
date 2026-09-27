@@ -10,8 +10,10 @@
 ```
 ~/ComposeKN/                     # sibling clone（ComposeKN 分支 experiment/lumicode-sample）
   samples/lumicode/              # 本实验 sample：源码指向 LumiCodeNext commonMain
+  compose-kn-resources/          # Native 侧 Res.font.*（官方无 linuxX64/mingwX64 变体）
 ~/LumiCodeNext/                  # 本仓库
   composeApp/src/commonMain/     # UI 共享
+  composeApp/src/commonMain/composeResources/font/  # Noto + JB Mono（两端共用）
   docs/composekn.md              # 本文
 ```
 
@@ -26,7 +28,7 @@
 ```bash
 cd ~/ComposeKN
 nix-shell ./shell.nix --run \
-  './gradlew :samples:lumicode:linkReleaseExecutableLinuxX64 --no-daemon'
+  './gradlew :samples:lumicode:linkReleaseExecutableLinuxX64Stable --no-daemon'
 
 # 运行（Wayland）
 ./scripts/run-linux-native.sh \
@@ -45,12 +47,14 @@ SKIA_MINGW_PREBUILT=/tmp/composekn-skia-mingw/skia-mingw-$(cat vendor/skiko/skia
 ```
 
 产物：`samples/lumicode/build/bin/mingwX64/releaseExecutable/lumicode.exe`
+（旁路应有 `composeResources/font/`，与 exe 一起发布）
 
-## 状态（本机已验证）
+## 状态
 
-- ✅ Linux：`lumicode.kexe` ~41MB（`linkReleaseExecutableLinuxX64Stable`）
-- ✅ Windows：`lumicode.exe` ~39MB（`samples/lumicode/build-windows.sh` + MinGW Skia 预编译包）
-- 运行：Linux 需 Wayland 会话 + `./scripts/run-linux-native.sh`；Windows 可拷到实机或 Wine 试跑
+- ✅ Linux / Windows Native 可链
+- ✅ **自定义字体**（ComposeKN v0.5.53）：`compose-kn-resources` + Gradle 插件生成 `Res.font.*`，
+  与 Desktop 同一批 Noto / JetBrains Mono；`InstallArchiveFonts` KN actual 已接
+- 运行：Linux 需 Wayland；Windows 可拷实机或 Wine
 
 ## 与 JVM 桌面的差异（当前）
 
@@ -58,9 +62,9 @@ SKIA_MINGW_PREBUILT=/tmp/composekn-skia-mingw/skia-mingw-$(cat vendor/skiko/skia
 |---|---|---|
 | 运行时 | 捆绑 JRE | 单一 `.kexe` / `.exe` |
 | 窗口 | AWT | Wayland / Win32 |
-| 字体 | 内置 Noto + JB Mono | 系统字体回退 |
+| 字体 | 官方 `compose.resources` → `Font(Res.font…)` | `com.composekn.resources.Font(Res.font…)`（同文件） |
 | 平台标签 | `· JVM` | `· KN` |
 
 ## LumiCode 侧改动
 
-- `InstallArchiveFonts` 改为 expect/actual，便于 Native 不依赖 compose.resources
+- `InstallArchiveFonts` 为 expect/actual：JVM/Wasm/Android 用官方 API，KN 用 compose-kn-resources，字体文件共用
