@@ -1,11 +1,11 @@
 [versions]
-# 2.2.20：stdllib 提供 kotlin.time.Clock；与 Compose MP 1.9.3 官方推荐组合对齐
-# （1.12 的 Gradle DSL 变更较大，另开一轮再升）
-kotlin = "2.2.20"
-compose = "1.9.3"
+kotlin = "2.4.20"
+compose = "1.12.1"
+# Material3 与 Compose 插件版本解耦（1.12.1 发布说明）
+compose-material3 = "1.12.0-alpha03"
 agp = "8.11.1"
-androidx-activityCompose = "1.10.1"
-kotlinx-datetime = "0.7.1"
+androidx-activityCompose = "1.11.0"
+kotlinx-datetime = "0.8.0"
 android-compileSdk = "35"
 android-minSdk = "24"
 android-targetSdk = "35"
@@ -13,6 +13,13 @@ android-targetSdk = "35"
 [libraries]
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activityCompose" }
 kotlinx-datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version.ref = "kotlinx-datetime" }
+# Compose：1.10+ 废弃 compose.* 别名，改为 version catalog 直引坐标
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }
+compose-ui-tooling = { module = "org.jetbrains.compose.ui:ui-tooling", version.ref = "compose" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-material3" }
+compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose" }
 
 [plugins]
 androidApplication = { id = "com.android.application", version.ref = "agp" }
