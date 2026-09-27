@@ -51,3 +51,16 @@ SKIA_MINGW_PREBUILT=/tmp/composekn-skia-mingw/skia-mingw-$(cat vendor/skiko/skia
 - ✅ Linux：`lumicode.kexe` ~41MB（`linkReleaseExecutableLinuxX64Stable`）
 - ✅ Windows：`lumicode.exe` ~39MB（`samples/lumicode/build-windows.sh` + MinGW Skia 预编译包）
 - 运行：Linux 需 Wayland 会话 + `./scripts/run-linux-native.sh`；Windows 可拷到实机或 Wine 试跑
+
+## 与 JVM 桌面的差异（当前）
+
+| | JVM Desktop（main） | ComposeKN（本分支实验） |
+|---|---|---|
+| 运行时 | 捆绑 JRE | 单一 `.kexe` / `.exe` |
+| 窗口 | AWT | Wayland / Win32 |
+| 字体 | 内置 Noto + JB Mono | 系统字体回退 |
+| 平台标签 | `· JVM` | `· KN` |
+
+## LumiCode 侧改动
+
+- `InstallArchiveFonts` 改为 expect/actual，便于 Native 不依赖 compose.resources
