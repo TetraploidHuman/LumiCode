@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -45,16 +44,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.lumicode.editor.resources.Res
-import com.lumicode.editor.resources.jbmono_bold
-import com.lumicode.editor.resources.jbmono_medium
-import com.lumicode.editor.resources.jbmono_regular
-import com.lumicode.editor.resources.noto_sans_bold
-import com.lumicode.editor.resources.noto_sans_regular
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.LineKind
 import com.lumicode.editor.state.OverlayMode
@@ -69,38 +60,16 @@ import com.lumicode.editor.ui.StatusBar
 import com.lumicode.editor.ui.TelemetryRail
 import com.lumicode.editor.ui.TopBar
 import com.lumicode.editor.ui.outlineOf
+import com.lumicode.editor.ui.theme.InstallArchiveFonts
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
-import com.lumicode.editor.ui.theme.RlFonts
 import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlSettings
 import kotlinx.coroutines.delay
-import org.jetbrains.compose.resources.ExperimentalResourceApi
-import org.jetbrains.compose.resources.Font
 
 /**
  * Root of the ANALYSIS OS shell. Identical on Android, desktop and wasm.
  */
-@OptIn(ExperimentalResourceApi::class)
-@Composable
-private fun InstallArchiveFonts() {
-    // 内置字体：正文用 Noto Sans CJK，代码/标签用 JetBrains Mono（并把 Noto 的中文字形
-    // 合并进同一族，见 tools/build_mono_font.py）。wasm 画布没有系统字体回退，必须自带。
-    val sans = FontFamily(
-        Font(Res.font.noto_sans_regular, FontWeight.Normal),
-        Font(Res.font.noto_sans_bold, FontWeight.Bold),
-    )
-    val mono = FontFamily(
-        Font(Res.font.jbmono_regular, FontWeight.Normal),
-        Font(Res.font.jbmono_medium, FontWeight.Medium),
-        Font(Res.font.jbmono_bold, FontWeight.Bold),
-    )
-    SideEffect {
-        RlFonts.sans = sans
-        RlFonts.mono = mono
-    }
-}
-
 @Composable
 fun App(state: IdeState) {
     InstallArchiveFonts()
