@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -103,28 +104,40 @@ fun EditorPanel(
         if (active == null) {
             EmptyDocument()
         } else {
-            val problemLines = state.problems
-                .filter { it.path == active }
-                .associate { it.line to it.severity }
+            val language = state.metaOf(active)?.language ?: Language.TEXT
+            val showMdPreview = language == Language.MARKDOWN && state.markdownPreview
+            if (showMdPreview) {
+                MarkdownPreview(
+                    text = state.contentOf(active),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            } else {
+                val problemLines = state.problems
+                    .filter { it.path == active }
+                    .associate { it.line to it.severity }
 
-            CodeEditor(
-                path = active,
-                text = state.contentOf(active),
-                language = state.metaOf(active)?.language ?: Language.TEXT,
-                findQuery = if (state.findVisible) state.findQuery else "",
-                findActiveMatch = state.findActiveMatch,
-                revealLine = state.pendingRevealLine,
-                problemLines = problemLines,
-                onTextChange = { state.updateContent(active, it) },
-                onCursorChange = { line, column, selection ->
-                    state.cursorLine = line
-                    state.cursorColumn = column
-                    state.selectionLength = selection
-                },
-                onSave = { state.save(active) },
-                onRun = onRun,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            )
+                CodeEditor(
+                    path = active,
+                    text = state.contentOf(active),
+                    language = language,
+                    findQuery = if (state.findVisible) state.findQuery else "",
+                    findActiveMatch = state.findActiveMatch,
+                    findCaseSensitive = state.findCaseSensitive,
+                    findRegex = state.findRegex,
+                    revealLine = state.pendingRevealLine,
+                    revealSeq = state.pendingRevealSeq,
+                    problemLines = problemLines,
+                    onTextChange = { state.updateContent(active, it) },
+                    onCursorChange = { line, column, selection ->
+                        state.cursorLine = line
+                        state.cursorColumn = column
+                        state.selectionLength = selection
+                    },
+                    onSave = { state.save(active) },
+                    onRun = onRun,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            }
         }
 
         EditorFooter(state, onRun, compact)
@@ -255,90 +268,229 @@ private fun Breadcrumb(state: IdeState) {
         }
         Spacer(Modifier.weight(1f))
         val file = state.activeFile
+        if (file != null && file.language == Language.MARKDOWN) {
+            GhostButton(
+                text = if (state.markdownPreview) "源码" else "预览",
+                glyph = if (state.markdownPreview) "</>" else "MD",
+                glyphLeading = false,
+                onClick = { state.markdownPreview = !state.markdownPreview },
+            )
+            HGap(14.dp)
+        }
         if (file != null) {
             LabelRaw(
                 text = "档案 ${file.meta.archiveNo}",
-                style = RlType.label(10.sp, RlColors.Muted),
+                style = RlType.label(12.sp, RlColors.Muted),
             )
             HGap(14.dp)
             LabelRaw(
                 text = file.language.label,
-                style = RlType.label(10.sp, RlColors.Faint),
+                style = RlType.label(12.sp, RlColors.Faint),
             )
             HGap(14.dp)
         }
-        LabelRaw(text = "UTF-8 · LF", style = RlType.label(10.sp, RlColors.Faint))
+        LabelRaw(text = "UTF-8 · LF", style = RlType.label(12.sp, RlColors.Faint))
     }
 }
 
 @Composable
 private fun FindBar(state: IdeState, compact: Boolean) {
     val focus = remember { FocusRequester() }
-    val matches = SyntaxHighlighter.countMatches(state.activeContent, state.findQuery)
+    val matches = SyntaxHighlighter.countMatches(
+        state.activeContent,
+        state.findQuery,
+        state.findCaseSensitive,
+        state.findRegex,
+    )
     LaunchedEffect(Unit) { focus.requestFocus() }
 
-    // 查找不再是一条"框"：只有一行文字和一条冰青光标
-    Box(Modifier.fillMaxWidth().height(46.dp)) {
-        Row(
-            Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (!compact) {
-                Label("查找", style = RlType.label(9.5.sp, RlColors.AccentDeep))
-                HGap(14.dp)
-            }
-            BasicTextField(
-                value = TextFieldValue(state.findQuery, TextRange(state.findQuery.length)),
-                onValueChange = {
-                    state.findQuery = it.text
-                    state.findActiveMatch = 0
-                },
-                singleLine = true,
-                textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink),
-                cursorBrush = SolidColor(RlColors.Accent),
-                modifier = Modifier
-                    .then(if (compact) Modifier.weight(1f) else Modifier.width(240.dp))
-                    .focusRequester(focus)
-                    .onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                        when (event.key) {
-                            Key.Enter -> {
-                                if (matches > 0) state.findActiveMatch = (state.findActiveMatch + 1) % matches
-                                true
-                            }
+    fun nextMatch() {
+        if (matches > 0) state.findActiveMatch = (state.findActiveMatch + 1) % matches
+    }
 
-                            Key.Escape -> {
-                                state.findVisible = false
-                                true
-                            }
+    fun prevMatch() {
+        if (matches > 0) {
+            state.findActiveMatch = (state.findActiveMatch - 1 + matches) % matches
+        }
+    }
 
-                            else -> false
+    Column(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(46.dp)) {
+            Row(
+                Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!compact) {
+                    Label("查找", style = RlType.label(11.sp, RlColors.AccentDeep))
+                    HGap(14.dp)
+                }
+                BasicTextField(
+                    value = TextFieldValue(state.findQuery, TextRange(state.findQuery.length)),
+                    onValueChange = {
+                        state.findQuery = it.text
+                        state.findActiveMatch = 0
+                    },
+                    singleLine = true,
+                    textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink),
+                    cursorBrush = SolidColor(RlColors.Accent),
+                    modifier = Modifier
+                        .then(if (compact) Modifier.weight(1f) else Modifier.width(200.dp))
+                        .focusRequester(focus)
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.Enter -> {
+                                    if (event.isShiftPressed) prevMatch() else nextMatch()
+                                    true
+                                }
+                                Key.Escape -> {
+                                    state.findVisible = false
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                    decorationBox = { inner ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { inner() }
                         }
                     },
-                decorationBox = { inner ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) { inner() }
-                    }
+                )
+                HGap(10.dp)
+                FindOptionChip(
+                    label = "Aa",
+                    active = state.findCaseSensitive,
+                    onClick = {
+                        state.findCaseSensitive = !state.findCaseSensitive
+                        state.findActiveMatch = 0
+                    },
+                )
+                HGap(6.dp)
+                FindOptionChip(
+                    label = ".*",
+                    active = state.findRegex,
+                    onClick = {
+                        state.findRegex = !state.findRegex
+                        state.findActiveMatch = 0
+                    },
+                )
+                HGap(12.dp)
+                LabelRaw(
+                    text = if (matches == 0) {
+                        "000 / 000"
+                    } else {
+                        "${(state.findActiveMatch + 1).toString().padStart(3, '0')} / ${matches.toString().padStart(3, '0')}"
+                    },
+                    style = RlType.mono.copy(
+                        fontSize = 11.5.sp,
+                        color = if (matches == 0) RlColors.Faint else RlColors.AccentDeep,
+                    ),
+                )
+                if (!compact) Spacer(Modifier.weight(1f))
+                HGap(8.dp)
+                GhostButton(
+                    text = if (compact) "" else "上一个",
+                    glyph = "←",
+                    glyphLeading = false,
+                    onClick = { prevMatch() },
+                )
+                HGap(if (compact) 6.dp else 10.dp)
+                GhostButton(
+                    text = if (compact) "" else "下一个",
+                    glyph = "→",
+                    glyphLeading = false,
+                    onClick = { nextMatch() },
+                )
+                HGap(if (compact) 8.dp else 16.dp)
+                GhostButton(
+                    text = if (compact) "" else "关闭",
+                    glyph = "×",
+                    glyphLeading = false,
+                    onClick = { state.findVisible = false },
+                )
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(46.dp)) {
+            Row(
+                Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (!compact) {
+                    Label("替换", style = RlType.label(11.sp, RlColors.Muted))
+                    HGap(14.dp)
+                }
+                BasicTextField(
+                    value = TextFieldValue(state.replaceQuery, TextRange(state.replaceQuery.length)),
+                    onValueChange = { state.replaceQuery = it.text },
+                    singleLine = true,
+                    textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink),
+                    cursorBrush = SolidColor(RlColors.Accent),
+                    modifier = Modifier
+                        .then(if (compact) Modifier.weight(1f) else Modifier.width(200.dp))
+                        .onPreviewKeyEvent { event ->
+                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                            when (event.key) {
+                                Key.Enter -> {
+                                    state.replaceCurrentMatch()
+                                    true
+                                }
+                                Key.Escape -> {
+                                    state.findVisible = false
+                                    true
+                                }
+                                else -> false
+                            }
+                        },
+                    decorationBox = { inner ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { inner() }
+                        }
+                    },
+                )
+                if (!compact) Spacer(Modifier.weight(1f))
+                HGap(12.dp)
+                GhostButton(
+                    text = if (compact) "" else "替换",
+                    glyph = "←",
+                    glyphLeading = false,
+                    onClick = { state.replaceCurrentMatch() },
+                )
+                HGap(if (compact) 8.dp else 12.dp)
+                GhostButton(
+                    text = if (compact) "" else "全部",
+                    glyph = "≡",
+                    glyphLeading = false,
+                    onClick = { state.replaceAllMatches() },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FindOptionChip(label: String, active: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Box(
+        Modifier
+            .wash(
+                when {
+                    active -> RlColors.AccentSoft
+                    hovered -> RlColors.FieldDeep
+                    else -> Color.Transparent
                 },
             )
-            HGap(14.dp)
-            LabelRaw(
-                text = if (matches == 0) "000 / 000" else "${(state.findActiveMatch + 1).toString().padStart(3, '0')} / ${matches.toString().padStart(3, '0')}",
-                style = RlType.mono.copy(fontSize = 11.5.sp, color = if (matches == 0) RlColors.Faint else RlColors.AccentDeep),
-            )
-            if (!compact) Spacer(Modifier.weight(1f))
-            HGap(12.dp)
-            GhostButton(text = if (compact) "" else "下一个", glyph = "→", glyphLeading = false, onClick = {
-                if (matches > 0) state.findActiveMatch = (state.findActiveMatch + 1) % matches
-            })
-            HGap(if (compact) 8.dp else 16.dp)
-            GhostButton(
-                text = if (compact) "" else "关闭",
-                glyph = "×",
-                glyphLeading = false,
-                onClick = { state.findVisible = false },
-            )
-        }
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+    ) {
+        LabelRaw(
+            text = label,
+            style = RlType.mono.copy(
+                fontSize = 12.sp,
+                color = if (active) RlColors.AccentDeep else RlColors.Muted,
+            ),
+        )
     }
 }
 
@@ -371,11 +523,11 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
                 .padding(horizontal = 13.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LabelRaw(text = "▶", style = RlType.mono.copy(fontSize = 11.sp, color = Color.White))
+            LabelRaw(text = "▶", style = RlType.mono.copy(fontSize = 12.sp, color = Color.White))
             HGap(9.dp)
-            LabelRaw(text = "运行分析", style = RlType.label(10.sp, Color.White))
+            LabelRaw(text = "运行分析", style = RlType.label(12.sp, Color.White))
             HGap(16.dp)
-            LabelRaw(text = "F5", style = RlType.label(10.sp, Color(0xFFBAC2CB)))
+            LabelRaw(text = "F5", style = RlType.label(12.sp, Color(0xFFBAC2CB)))
         }
         HGap(if (compact) 10.dp else 16.dp)
         GhostButton(text = if (compact) "" else "保存", glyph = "⌘S", glyphLeading = false, onClick = {
@@ -386,6 +538,10 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
             state.findVisible = !state.findVisible
         })
         if (!compact) {
+            HGap(12.dp)
+            GhostButton(text = "替换", glyph = "⌘H", glyphLeading = false, onClick = {
+                state.findVisible = true
+            })
             HGap(16.dp)
             GhostButton(text = "命令面板", glyph = "⌘K", glyphLeading = false, onClick = {
                 state.toggleOverlay(OverlayMode.COMMAND_INDEX)
@@ -393,12 +549,12 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
         }
         Spacer(Modifier.weight(1f))
         val stats = "行 ${state.cursorLine}  列 ${state.cursorColumn}"
-        LabelRaw(text = stats, style = RlType.label(10.sp, RlColors.Muted))
+        LabelRaw(text = stats, style = RlType.label(12.sp, RlColors.Muted))
         if (!compact) {
             HGap(18.dp)
             LabelRaw(
                 text = "${state.activeContent.length} 字符",
-                style = RlType.label(10.sp, RlColors.Faint),
+                style = RlType.label(12.sp, RlColors.Faint),
             )
         }
     }
@@ -421,7 +577,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             selected = tab,
             onSelect = { tab = it },
             modifier = Modifier.fillMaxWidth(),
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             trailing = {
                 Spacer(Modifier.weight(1f))
                 val count = when (tab) {
@@ -429,7 +585,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                     1 -> state.problems.size
                     else -> state.log.size
                 }
-                LabelRaw(text = count.toString().padStart(3, '0'), style = RlType.label(10.sp, RlColors.Muted))
+                LabelRaw(text = count.toString().padStart(3, '0'), style = RlType.label(12.sp, RlColors.Muted))
                 HGap(16.dp)
                 GhostButton(text = "隐藏", glyph = "×", glyphLeading = false, onClick = { state.outputVisible = false })
             },
@@ -453,7 +609,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             when (current) {
                 0 -> state.terminal.takeLast(9).forEach { line ->
                     Row(Modifier.fillMaxWidth()) {
-                        LabelRaw(text = line.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
+                        LabelRaw(text = line.time, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint))
                         HGap(12.dp)
                         BasicText(
                             text = line.text,
@@ -474,7 +630,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                 }
 
                 1 -> if (state.problems.isEmpty()) {
-                    Label("未发现问题 · 文档状态良好", style = RlType.label(10.sp, RlColors.Faint))
+                    Label("未发现问题 · 文档状态良好", style = RlType.label(12.sp, RlColors.Faint))
                 } else {
                     state.problems.take(7).forEach { problem ->
                         val rowInteraction = remember { MutableInteractionSource() }
@@ -501,7 +657,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                             HGap(10.dp)
                             LabelRaw(
                                 text = "${problem.line}:${problem.column}",
-                                style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Muted),
+                                style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Muted),
                             )
                             HGap(12.dp)
                             LabelRaw(
@@ -514,7 +670,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
 
                 else -> state.log.takeLast(8).forEach { entry ->
                     Row(Modifier.fillMaxWidth()) {
-                        LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
+                        LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint))
                         HGap(12.dp)
                         LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft))
                     }

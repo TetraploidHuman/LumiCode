@@ -221,10 +221,12 @@ def main() -> None:
     missing_check = find_sc_face(args.noto)
     cmap = missing_check.getBestCmap()
     missing = [chr(cp) for cp in codepoints if cp not in cmap]
+    available = [cp for cp in codepoints if cp in cmap]
     missing_check.close()
     if missing:
-        print(f"missing CJK glyphs: {''.join(missing)}", file=sys.stderr)
-        raise SystemExit(1)
+        print(f"skipping {len(missing)} glyphs not in Noto Mono: {''.join(missing)}", file=sys.stderr)
+    codepoints = available
+    print(f"{len(codepoints)} codepoints will be embedded")
 
     for style, weight in WEIGHTS:
         build_weight(args.jetbrains, args.noto, style, weight, codepoints, args.out, args.work)

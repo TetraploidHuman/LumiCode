@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -39,10 +40,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -51,6 +60,7 @@ import com.lumicode.editor.model.FileNode
 import com.lumicode.editor.platform.platformTag
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.OverlayMode
+import com.lumicode.editor.state.TreeDialog
 import com.lumicode.editor.ui.components.AccentTick
 import com.lumicode.editor.ui.components.GhostButton
 import com.lumicode.editor.ui.components.Label
@@ -69,54 +79,146 @@ import com.lumicode.editor.ui.theme.RlType
  */
 @Composable
 fun ExplorerPanel(state: IdeState, showFooter: Boolean = true, modifier: Modifier = Modifier) {
-    Column(
-        modifier
-            .width(RlDimens.explorerWidth)
-            .fillMaxHeight()
-            .padding(start = RlDimens.pagePad, top = 16.dp, end = 14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Label("工作区")
-            Spacer(Modifier.width(8.dp))
-        }
-        Spacer(Modifier.height(14.dp))
+    Box(modifier.width(RlDimens.explorerWidth).fillMaxHeight()) {
+        Column(
+            Modifier
+                .fillMaxHeight()
+                .padding(start = RlDimens.pagePad, top = 16.dp, end = 14.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Label("工作区")
+                Spacer(Modifier.width(8.dp))
+            }
+            Spacer(Modifier.height(14.dp))
 
-        LabelRaw(
-            text = "R-OS 工作区",
-            style = RlType.title.copy(fontSize = 22.sp, lineHeight = 24.sp),
-        )
-        Spacer(Modifier.height(5.dp))
-        Label("内部数据库")
-        Spacer(Modifier.height(3.dp))
-        LabelRaw(
-            text = "NO.${state.openTabs.size.toString().padStart(3, '0')}",
-            style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint),
-        )
-        Spacer(Modifier.height(22.dp))
+            LabelRaw(
+                text = "R-OS 工作区",
+                style = RlType.title.copy(fontSize = 22.sp, lineHeight = 24.sp),
+            )
+            Spacer(Modifier.height(5.dp))
+            Label("内部数据库")
+            Spacer(Modifier.height(3.dp))
+            LabelRaw(
+                text = "NO.${state.openTabs.size.toString().padStart(3, '0')}",
+                style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint),
+            )
+            Spacer(Modifier.height(22.dp))
 
-        Column(Modifier.weight(1f).fillMaxWidth()) {
-            state.tree.forEach { node ->
-                TreeNode(node, state, depth = 0)
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                state.tree.forEach { node ->
+                    TreeNode(node, state, depth = 0)
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                GhostButton(text = "文件", glyph = "+", onClick = { state.beginNewFile() })
+                Spacer(Modifier.width(6.dp))
+                GhostButton(text = "文件夹", glyph = "+", onClick = { state.beginNewFolder() })
+            }
+            Spacer(Modifier.height(4.dp))
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                GhostButton(
+                    text = "重命名",
+                    glyph = "≡",
+                    onClick = { state.beginRename() },
+                )
+                Spacer(Modifier.width(6.dp))
+                GhostButton(
+                    text = "删除",
+                    glyph = "×",
+                    onClick = { state.deleteSelection() },
+                )
+            }
+            if (showFooter) {
+                Spacer(Modifier.height(10.dp))
+                GhostButton(
+                    text = "文档结构图",
+                    glyph = "↗",
+                    glyphLeading = false,
+                    onClick = { state.openOverlay(OverlayMode.OVERVIEW) },
+                )
+                Spacer(Modifier.height(14.dp))
+            } else {
+                Spacer(Modifier.height(10.dp))
             }
         }
 
-        if (!showFooter) return@Column
-        Spacer(Modifier.height(12.dp))
-        Spacer(Modifier.height(10.dp))
-        GhostButton(
-            text = "拖拽查看",
-            glyph = "→",
-            glyphLeading = false,
-            onClick = { state.statusMessage = "拖拽查看模式" },
-        )
-        Spacer(Modifier.height(6.dp))
-        GhostButton(
-            text = "文档结构图",
-            glyph = "↗",
-            glyphLeading = false,
-            onClick = { state.openOverlay(OverlayMode.OVERVIEW) },
-        )
-        Spacer(Modifier.height(14.dp))
+        if (state.treeDialog != null) {
+            TreeNameDialog(state)
+        }
+    }
+}
+
+@Composable
+private fun TreeNameDialog(state: IdeState) {
+    val dialog = state.treeDialog ?: return
+    val title = when (dialog) {
+        is TreeDialog.NewFile -> "新建文件 · ${dialog.parentFolder.ifEmpty { "/" }}"
+        is TreeDialog.NewFolder -> "新建文件夹 · ${dialog.parentFolder.ifEmpty { "/" }}"
+        is TreeDialog.Rename -> if (dialog.isFolder) "重命名文件夹" else "重命名文件"
+    }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(dialog) { focus.requestFocus() }
+
+    Box(
+        Modifier
+            .fillMaxHeight()
+            .fillMaxWidth()
+            .background(RlColors.Scrim)
+            .clickableFlat { state.cancelTreeDialog() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp)
+                .wash(RlColors.Panel)
+                .clickableFlat { /* 吃掉点击，避免点到遮罩 */ }
+                .padding(16.dp),
+        ) {
+            Label(title, style = RlType.label(11.sp, RlColors.Ink))
+            Spacer(Modifier.height(12.dp))
+            BasicTextField(
+                value = state.treeDialogDraft,
+                onValueChange = {
+                    state.treeDialogDraft = it
+                    state.treeDialogError = null
+                },
+                singleLine = true,
+                textStyle = RlType.mono.copy(fontSize = 13.sp, color = RlColors.Ink),
+                cursorBrush = SolidColor(RlColors.Accent),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .wash(RlColors.FieldDeep)
+                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                    .focusRequester(focus)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.Enter, Key.NumPadEnter -> {
+                                state.confirmTreeDialog()
+                                true
+                            }
+                            Key.Escape -> {
+                                state.cancelTreeDialog()
+                                true
+                            }
+                            else -> false
+                        }
+                    },
+            )
+            state.treeDialogError?.let { err ->
+                Spacer(Modifier.height(8.dp))
+                Label(err, style = RlType.label(12.sp, RlColors.InkSoft))
+            }
+            Spacer(Modifier.height(14.dp))
+            Row {
+                GhostButton(text = "确定", glyph = "✓", onClick = { state.confirmTreeDialog() })
+                Spacer(Modifier.width(8.dp))
+                GhostButton(text = "取消", onClick = { state.cancelTreeDialog() })
+            }
+        }
     }
 }
 
@@ -128,7 +230,7 @@ private fun TreeNode(node: FileNode, state: IdeState, depth: Int) {
             label = node.name,
             hint = node.fileCount.toString().padStart(2, '0'),
             depth = depth,
-            selected = false,
+            selected = state.treeSelection == node.path,
             isFolder = true,
             open = open,
             onClick = { state.toggleFolder(node.path) },
@@ -155,7 +257,7 @@ private fun TreeNode(node: FileNode, state: IdeState, depth: Int) {
             label = node.name,
             hint = null,
             depth = depth,
-            selected = state.activePath == node.path,
+            selected = state.treeSelection == node.path || state.activePath == node.path,
             isFolder = false,
             open = false,
             dirty = state.isDirty(node.path),
@@ -224,7 +326,7 @@ private fun TreeRow(
         Spacer(Modifier.width(7.dp))
         BasicText(
             text = label,
-            style = (if (isFolder) RlType.label(10.sp, if (selected) RlColors.Ink else RlColors.Muted) else RlType.mono.copy(
+            style = (if (isFolder) RlType.label(12.sp, if (selected) RlColors.Ink else RlColors.Muted) else RlType.mono.copy(
                 fontSize = 12.sp,
                 color = if (selected) RlColors.Ink else RlColors.InkSoft,
             )),
@@ -233,7 +335,7 @@ private fun TreeRow(
             modifier = Modifier.weight(1f),
         )
         if (hint != null) {
-            LabelRaw(text = hint, style = RlType.label(9.5.sp, RlColors.Faint))
+            LabelRaw(text = hint, style = RlType.label(11.sp, RlColors.Faint))
         }
     }
 }
@@ -260,7 +362,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
                 text = "档案 ${file?.meta?.archiveNo ?: "X-000"}",
-                style = RlType.label(10.sp, RlColors.Ink),
+                style = RlType.label(12.sp, RlColors.Ink),
             )
             Spacer(Modifier.weight(1f))
             Label("参考区")
@@ -284,7 +386,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
                 text = if (file != null) file.folder.ifEmpty { "工作区根目录" } else "—",
-                style = RlType.label(10.sp, RlColors.InkSoft),
+                style = RlType.label(12.sp, RlColors.InkSoft),
             )
             Spacer(Modifier.width(10.dp))
             Label("机构档案")
@@ -322,7 +424,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                 selected = tab,
                 onSelect = { tab = it },
                 modifier = Modifier.fillMaxWidth(),
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 gap = 18.dp,
             )
             Spacer(Modifier.height(16.dp))
@@ -342,7 +444,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                 Column(Modifier.fillMaxWidth()) {
                 when (current) {
                     0 -> {
-                        Label("摘要", style = RlType.label(10.sp, RlColors.Ink))
+                        Label("摘要", style = RlType.label(12.sp, RlColors.Ink))
                         Spacer(Modifier.height(12.dp))
                         BasicText(text = file.meta.abstract, style = RlType.body)
                         Spacer(Modifier.height(18.dp))
@@ -354,11 +456,11 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                     }
 
                     1 -> {
-                        Label("结构", style = RlType.label(10.sp, RlColors.Ink))
+                        Label("结构", style = RlType.label(12.sp, RlColors.Ink))
                         Spacer(Modifier.height(12.dp))
                         val outline = remember(state.activeContent) { outlineOf(state.activeContent) }
                         if (outline.isEmpty()) {
-                            Label("未找到声明", style = RlType.label(10.sp, RlColors.Faint))
+                            Label("未找到声明", style = RlType.label(12.sp, RlColors.Faint))
                         } else {
                             outline.take(18).forEach { (line, text) ->
                                 val rowInteraction = remember { MutableInteractionSource() }
@@ -396,10 +498,10 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                     }
 
                     else -> {
-                        Label("访问日志", style = RlType.label(10.sp, RlColors.Ink))
+                        Label("访问日志", style = RlType.label(12.sp, RlColors.Ink))
                         Spacer(Modifier.height(12.dp))
                         if (state.log.isEmpty()) {
-                            Label("暂无记录", style = RlType.label(10.sp, RlColors.Faint))
+                            Label("暂无记录", style = RlType.label(12.sp, RlColors.Faint))
                         } else {
                             state.log.reversed().take(14).forEach { entry ->
                                 Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -407,7 +509,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
                                     Spacer(Modifier.width(10.dp))
                                     BasicText(
                                         text = entry.text,
-                                        style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.InkSoft),
+                                        style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.InkSoft),
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                     )
@@ -427,7 +529,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
             )
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Label("导出", style = RlType.label(10.sp, RlColors.Muted))
+                Label("导出", style = RlType.label(12.sp, RlColors.Muted))
                 Spacer(Modifier.weight(1f))
                 BasicText("↓", style = RlType.mono.copy(fontSize = 15.sp, color = RlColors.Ink))
             }
@@ -437,9 +539,9 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
 
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            LabelRaw(text = platformTag(), style = RlType.label(9.5.sp, RlColors.Faint))
+            LabelRaw(text = platformTag(), style = RlType.label(11.sp, RlColors.Faint))
             Spacer(Modifier.weight(1f))
-            LabelRaw(text = "由 LUMICODE 驱动", style = RlType.label(10.sp, RlColors.Ink))
+            LabelRaw(text = "由 LUMICODE 驱动", style = RlType.label(12.sp, RlColors.Ink))
             Spacer(Modifier.width(6.dp))
             Box(Modifier.size(width = 26.dp, height = 3.dp).wash(RlColors.Accent))
         }
@@ -456,7 +558,7 @@ private fun MetaColumn(
     Column(modifier) {
         entries.forEachIndexed { index, (label, value) ->
             if (index > 0) Spacer(Modifier.height(20.dp))
-            Label(label, style = RlType.label(10.sp, RlColors.Muted))
+            Label(label, style = RlType.label(12.sp, RlColors.Muted))
             Spacer(Modifier.height(5.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (statusDot) {
@@ -477,17 +579,23 @@ private fun MetaColumn(
 @Composable
 private fun MiniStat(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier) {
-        Label(label, style = RlType.label(9.5.sp, RlColors.Faint))
+        Label(label, style = RlType.label(11.sp, RlColors.Faint))
         Spacer(Modifier.height(4.dp))
         BasicText(value, style = RlType.mono.copy(fontSize = 13.sp, color = RlColors.Ink))
     }
 }
 
-/** Naive outline extraction: declarations worth listing in the reference area. */
+/** 顶层大纲：类 / 函数 / 对象等；忽略缩进行，避免把局部 val 算进去。 */
 internal fun outlineOf(text: String): List<Pair<Int, String>> {
-    val regex = Regex("^\\s*(?:@\\w+\\s+)?(?:fun|class|object|interface|enum class|data class|val|var|def|function)\\s+[^\\n]*")
+    val modifier =
+        """(?:public|private|protected|internal|open|override|abstract|final|sealed|data|inline|suspend|tailrec|operator|infix|const|lateinit|actual|expect|enum|annotation|value|inner)"""
+    val regex = Regex(
+        """^(?:(?:@\w+(?:\([^)]*\))?|$modifier)\s+)*(?:fun|class|object|interface|typealias)\s+\S[^\n]*""",
+    )
     val out = mutableListOf<Pair<Int, String>>()
     text.split('\n').forEachIndexed { index, line ->
+        // 只要顶层：行首有空白就当作嵌套声明跳过
+        if (line.isNotEmpty() && line[0].isWhitespace()) return@forEachIndexed
         val match = regex.find(line) ?: return@forEachIndexed
         val cleaned = match.value.trim().removeSuffix("{").trim()
         if (cleaned.length in 3..74) out += (index + 1) to cleaned

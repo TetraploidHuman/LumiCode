@@ -4,10 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -86,17 +82,22 @@ private data class PaletteRow(
  */
 @Composable
 fun OverlayHost(state: IdeState, commands: List<IdeCommand>, compact: Boolean = false) {
-    val visible = remember { MutableTransitionState(false) }
-    visible.targetState = state.overlay != OverlayMode.NONE
+    val open = state.overlay != OverlayMode.NONE
+    // scrim / sheet 必须各用自己的 TransitionState —— 共用一份时两套
+    // AnimatedVisibility 会争抢 currentState，表现为「只有退场、没有入场」。
+    val scrimVisible = remember { MutableTransitionState(false) }
+    val sheetVisible = remember { MutableTransitionState(false) }
+    scrimVisible.targetState = open
+    sheetVisible.targetState = open
 
     // 退场时 state.overlay 已经是 NONE，所以得自己记住"刚才那一页"
     var lastMode by remember { mutableStateOf(OverlayMode.COMMAND_INDEX) }
     if (state.overlay != OverlayMode.NONE) lastMode = state.overlay
 
     AnimatedVisibility(
-        visibleState = visible,
-        enter = fadeIn(RlMotion.enter(150)),
-        exit = fadeOut(RlMotion.exit()),
+        visibleState = scrimVisible,
+        enter = fadeIn(RlMotion.enter(200)),
+        exit = fadeOut(RlMotion.exit(120)),
         label = "scrim",
     ) {
         Box(
@@ -111,17 +112,16 @@ fun OverlayHost(state: IdeState, commands: List<IdeCommand>, compact: Boolean = 
     }
 
     AnimatedVisibility(
-        visibleState = visible,
-        enter = fadeIn(RlMotion.enter(160)) +
-            scaleIn(RlMotion.enter(190), initialScale = 0.988f) +
-            slideInVertically(RlMotion.enter(190)) { -it / 56 },
-        exit = fadeOut(RlMotion.exit(90)) +
-            scaleOut(RlMotion.exit(120), targetScale = 0.992f),
+        visibleState = sheetVisible,
+        enter = fadeIn(RlMotion.enter(220)),
+        exit = fadeOut(RlMotion.exit(120)),
         label = "sheet",
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
             when (lastMode) {
-                OverlayMode.COMMAND_INDEX, OverlayMode.QUICK_OPEN -> PaletteSheet(state, commands, compact)
+                OverlayMode.COMMAND_INDEX, OverlayMode.QUICK_OPEN, OverlayMode.WORKSPACE_SEARCH ->
+                    PaletteSheet(state, commands, compact, displayMode = lastMode)
+                OverlayMode.GOTO_LINE -> GotoLineSheet(state, compact)
                 OverlayMode.SETTINGS -> SettingsOverlay(state, compact)
                 OverlayMode.OVERVIEW -> OverviewOverlay(state, compact)
                 OverlayMode.NONE -> Unit
@@ -165,7 +165,7 @@ private fun SheetScaffold(
                 HGap(11.dp)
                 BasicText(title, style = RlType.sectionTitle.copy(fontSize = 17.sp))
                 HGap(12.dp)
-                LabelRaw(text = subtitle, style = RlType.label(10.sp, RlColors.Faint))
+                LabelRaw(text = subtitle, style = RlType.label(12.sp, RlColors.Faint))
                 Spacer(Modifier.weight(1f))
                 val escInteraction = remember { MutableInteractionSource() }
                 val escHovered by escInteraction.collectIsHoveredAsState()
@@ -196,8 +196,14 @@ private fun SheetScaffold(
 // ------------------------------------------------------------------ 命令面板
 
 @Composable
-private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: Boolean) {
-    val mode = state.overlay
+private fun PaletteSheet(
+    state: IdeState,
+    commands: List<IdeCommand>,
+    compact: Boolean,
+    displayMode: OverlayMode,
+) {
+    // 退场时 state.overlay 已是 NONE，必须用 displayMode（lastMode）保住标题与列表
+    val mode = displayMode
     val query = state.overlayQuery
     val rows: List<PaletteRow> = when (mode) {
         OverlayMode.COMMAND_INDEX -> commands
@@ -231,10 +237,24 @@ private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: B
                 )
             }
 
+        OverlayMode.WORKSPACE_SEARCH -> state.searchWorkspace(query)
+            .mapIndexed { index, hit ->
+                PaletteRow(
+                    index = (index + 1).toString().padStart(2, '0'),
+                    title = hit.path.substringAfterLast('/'),
+                    secondary = hit.preview.ifEmpty { "—" },
+                    trailing = "L${hit.line}",
+                    group = hit.path,
+                    action = { state.open(hit.path, hit.line) },
+                )
+            }
+
         else -> emptyList()
     }
 
-    var selected by remember(mode, query) { mutableStateOf(0) }
+    var selected by remember(mode, query, state.findCaseSensitive, state.findRegex) {
+        mutableStateOf(0)
+    }
     val focus = remember { FocusRequester() }
     var field by remember(mode) { mutableStateOf(TextFieldValue("", TextRange(0))) }
 
@@ -268,8 +288,9 @@ private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: B
                         }
 
                         Key.Enter, Key.NumPadEnter -> {
+                            val before = state.overlay
                             rows.getOrNull(selected)?.action?.invoke()
-                            state.overlay = OverlayMode.NONE
+                            if (state.overlay == before) state.overlay = OverlayMode.NONE
                             true
                         }
 
@@ -286,7 +307,11 @@ private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: B
                 AccentTick(length = 20.dp)
                 HGap(11.dp)
                 Label(
-                    if (mode == OverlayMode.COMMAND_INDEX) "命令面板" else "快速打开",
+                    when (mode) {
+                        OverlayMode.COMMAND_INDEX -> "命令面板"
+                        OverlayMode.WORKSPACE_SEARCH -> "工作区搜索"
+                        else -> "快速打开"
+                    },
                     style = RlType.label(11.sp, RlColors.Ink),
                 )
                 HGap(16.dp)
@@ -308,10 +333,24 @@ private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: B
                         }
                     },
                 )
+                if (mode == OverlayMode.WORKSPACE_SEARCH) {
+                    HGap(10.dp)
+                    PaletteOptionChip(
+                        label = "Aa",
+                        active = state.findCaseSensitive,
+                        onClick = { state.findCaseSensitive = !state.findCaseSensitive },
+                    )
+                    HGap(6.dp)
+                    PaletteOptionChip(
+                        label = ".*",
+                        active = state.findRegex,
+                        onClick = { state.findRegex = !state.findRegex },
+                    )
+                }
                 HGap(16.dp)
                 LabelRaw(
                     text = "${rows.size} 项",
-                    style = RlType.label(10.sp, RlColors.Faint),
+                    style = RlType.label(12.sp, RlColors.Faint),
                 )
                 HGap(14.dp)
                 val paletteEsc = remember { MutableInteractionSource() }
@@ -346,8 +385,9 @@ private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: B
                                     })
                                 .hoverable(interaction)
                                 .clickable(interactionSource = interaction, indication = null) {
+                                    val before = state.overlay
                                     row.action()
-                                    state.overlay = OverlayMode.NONE
+                                    if (state.overlay == before) state.overlay = OverlayMode.NONE
                                 }
                                 .padding(horizontal = 14.dp, vertical = 10.dp),
                         ) {
@@ -372,15 +412,15 @@ private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: B
                                     overflow = TextOverflow.Ellipsis,
                                 )
                                 HGap(10.dp)
-                                LabelRaw(text = row.secondary, style = RlType.label(10.sp, RlColors.Faint))
+                                LabelRaw(text = row.secondary, style = RlType.label(12.sp, RlColors.Faint))
                                 Spacer(Modifier.weight(1f))
                                 LabelRaw(
                                     text = row.trailing,
-                                    style = RlType.label(10.sp, if (active) RlColors.AccentDeep else RlColors.Muted),
+                                    style = RlType.label(12.sp, if (active) RlColors.AccentDeep else RlColors.Muted),
                                 )
                             }
                             Spacer(Modifier.height(3.dp))
-                            LabelRaw(text = row.group, style = RlType.label(9.sp, RlColors.Faint))
+                            LabelRaw(text = row.group, style = RlType.label(11.sp, RlColors.Faint))
                         }
                     }
                 }
@@ -391,15 +431,138 @@ private fun PaletteSheet(state: IdeState, commands: List<IdeCommand>, compact: B
                     .padding(horizontal = 20.dp, vertical = 11.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                LabelRaw(text = "↑ ↓ 选择", style = RlType.label(9.5.sp, RlColors.Faint))
+                LabelRaw(text = "↑ ↓ 选择", style = RlType.label(11.sp, RlColors.Faint))
                 HGap(18.dp)
-                LabelRaw(text = "回车 执行", style = RlType.label(9.5.sp, RlColors.Faint))
+                LabelRaw(text = "回车 执行", style = RlType.label(11.sp, RlColors.Faint))
                 Spacer(Modifier.weight(1f))
                 LabelRaw(
-                    text = if (mode == OverlayMode.COMMAND_INDEX) "分析系统 · 索引" else "分析系统 · 档案",
-                    style = RlType.label(9.5.sp, RlColors.Faint),
+                    text = when (mode) {
+                        OverlayMode.COMMAND_INDEX -> "分析系统 · 索引"
+                        OverlayMode.WORKSPACE_SEARCH -> "分析系统 · 全文"
+                        else -> "分析系统 · 档案"
+                    },
+                    style = RlType.label(11.sp, RlColors.Faint),
                 )
             }
+    }
+}
+
+@Composable
+private fun PaletteOptionChip(label: String, active: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Box(
+        Modifier
+            .wash(
+                when {
+                    active -> RlColors.AccentSoft
+                    hovered -> RlColors.FieldDeep
+                    else -> Color.Transparent
+                },
+            )
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 4.dp),
+    ) {
+        LabelRaw(
+            text = label,
+            style = RlType.mono.copy(
+                fontSize = 12.sp,
+                color = if (active) RlColors.AccentDeep else RlColors.Muted,
+            ),
+        )
+    }
+}
+
+// -------------------------------------------------------------------- 跳转到行
+
+@Composable
+private fun GotoLineSheet(state: IdeState, compact: Boolean) {
+    val focus = remember { FocusRequester() }
+    var field by remember { mutableStateOf(TextFieldValue("")) }
+    val maxLine = remember(state.activePath, state.activeContent) {
+        val text = state.activeContent
+        if (text.isEmpty()) 1 else text.count { it == '\n' } + 1
+    }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+
+    fun commit() {
+        val n = field.text.trim().toIntOrNull() ?: return
+        state.requestRevealLine(n)
+        state.overlay = OverlayMode.NONE
+    }
+
+    Column(
+        Modifier
+            .padding(top = if (compact) 24.dp else 84.dp, start = 12.dp, end = 12.dp)
+            .width(if (compact) 0.dp else 420.dp)
+            .then(if (compact) Modifier.fillMaxWidth() else Modifier)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Escape -> {
+                        state.overlay = OverlayMode.NONE
+                        true
+                    }
+                    Key.Enter, Key.NumPadEnter -> {
+                        commit()
+                        true
+                    }
+                    else -> false
+                }
+            },
+    ) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 15.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            AccentTick(length = 20.dp)
+            HGap(11.dp)
+            Label("跳转到行", style = RlType.label(11.sp, RlColors.Ink))
+            HGap(16.dp)
+            BasicTextField(
+                value = field,
+                onValueChange = { next ->
+                    if (next.text.all { it.isDigit() } && next.text.length <= 6) field = next
+                },
+                singleLine = true,
+                textStyle = RlType.mono.copy(fontSize = 14.sp, color = RlColors.Ink),
+                cursorBrush = SolidColor(RlColors.Accent),
+                modifier = Modifier
+                    .weight(1f)
+                    .focusRequester(focus),
+                decorationBox = { inner ->
+                    Box {
+                        if (field.text.isEmpty()) {
+                            LabelRaw(text = "行号 1–$maxLine", style = RlType.label(11.sp, RlColors.Faint))
+                        }
+                        inner()
+                    }
+                },
+            )
+            HGap(14.dp)
+            val escInteraction = remember { MutableInteractionSource() }
+            Box(
+                Modifier.clickable(interactionSource = escInteraction, indication = null) {
+                    state.overlay = OverlayMode.NONE
+                },
+            ) {
+                Chip(text = "ESC")
+            }
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            LabelRaw(
+                text = "当前 L${state.cursorLine} · 共 $maxLine 行 · 回车跳转",
+                style = RlType.label(11.sp, RlColors.Faint),
+            )
+        }
     }
 }
 
@@ -462,7 +625,7 @@ private fun SettingsOverlay(state: IdeState, compact: Boolean) {
 @Composable
 private fun SettingSection(title: String) {
     Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-        Label(title, style = RlType.label(10.sp, RlColors.Ink))
+        Label(title, style = RlType.label(12.sp, RlColors.Ink))
         HGap(10.dp)
         Box(
             Modifier
@@ -484,7 +647,7 @@ private fun SettingRow(label: String, hint: String, control: @Composable () -> U
         Column(Modifier.weight(1f)) {
             BasicText(label, style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink))
             Spacer(Modifier.height(3.dp))
-            LabelRaw(text = hint, style = RlType.label(9.5.sp, RlColors.Faint))
+            LabelRaw(text = hint, style = RlType.label(11.sp, RlColors.Faint))
         }
         HGap(16.dp)
         control()
@@ -571,7 +734,7 @@ private fun ToggleRow(label: String, hint: String, checked: Boolean, onChange: (
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
                 text = if (checked) "开启" else "关闭",
-                style = RlType.label(10.sp, if (checked) RlColors.AccentDeep else RlColors.Faint),
+                style = RlType.label(12.sp, if (checked) RlColors.AccentDeep else RlColors.Faint),
             )
             HGap(10.dp)
             val interaction = remember { MutableInteractionSource() }
@@ -613,7 +776,7 @@ private fun ActionRow(label: String, hint: String, trailing: String, onClick: ()
         Column(Modifier.weight(1f)) {
             BasicText(label, style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink))
             Spacer(Modifier.height(3.dp))
-            LabelRaw(text = hint, style = RlType.label(9.5.sp, RlColors.Faint))
+            LabelRaw(text = hint, style = RlType.label(11.sp, RlColors.Faint))
         }
         HGap(16.dp)
         LabelRaw(
@@ -626,7 +789,7 @@ private fun ActionRow(label: String, hint: String, trailing: String, onClick: ()
 @Composable
 private fun InfoRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        LabelRaw(text = label, style = RlType.label(10.sp, RlColors.Muted))
+        LabelRaw(text = label, style = RlType.label(12.sp, RlColors.Muted))
         Spacer(Modifier.width(20.dp))
         BasicText(value, style = RlType.body.copy(fontSize = 12.5.sp, color = RlColors.InkSoft), maxLines = 2)
     }
@@ -656,7 +819,7 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
         Spacer(Modifier.height(16.dp))
         Spacer(Modifier.height(12.dp))
 
-        Label("文档（点击打开）", style = RlType.label(10.sp, RlColors.Ink))
+        Label("文档（点击打开）", style = RlType.label(12.sp, RlColors.Ink))
         Spacer(Modifier.height(8.dp))
         files.forEach { path ->
             val interaction = remember { MutableInteractionSource() }
@@ -691,14 +854,14 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
                 Spacer(Modifier.weight(1f))
                 LabelRaw(
                     text = "${state.contentOf(path).count { it == '\n' } + 1} 行",
-                    style = RlType.label(10.sp, RlColors.Faint),
+                    style = RlType.label(12.sp, RlColors.Faint),
                 )
             }
         }
 
         Spacer(Modifier.height(14.dp))
         Spacer(Modifier.height(12.dp))
-        Label("最近操作", style = RlType.label(10.sp, RlColors.Ink))
+        Label("最近操作", style = RlType.label(12.sp, RlColors.Ink))
         Spacer(Modifier.height(8.dp))
         state.log.takeLast(6).reversed().forEach { entry ->
             Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
@@ -710,7 +873,7 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
 
         Spacer(Modifier.height(16.dp))
         Spacer(Modifier.height(12.dp))
-        Label("快捷键", style = RlType.label(10.sp, RlColors.Ink))
+        Label("快捷键", style = RlType.label(12.sp, RlColors.Ink))
         Spacer(Modifier.height(8.dp))
         listOf(
             "⌘K / Ctrl+K" to "命令面板",
@@ -736,6 +899,6 @@ private fun StatBlock(label: String, value: String) {
     Column {
         LabelRaw(text = value, style = RlType.title.copy(fontSize = 26.sp, lineHeight = 28.sp))
         Spacer(Modifier.height(4.dp))
-        Label(label, style = RlType.label(10.sp, RlColors.Muted))
+        Label(label, style = RlType.label(12.sp, RlColors.Muted))
     }
 }

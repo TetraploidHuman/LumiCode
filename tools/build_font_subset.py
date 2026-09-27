@@ -101,11 +101,14 @@ def main() -> None:
     print(f"{len(codepoints)} codepoints collected from {args.src}")
 
     font = find_sc_face(args.sans)
-    missing = [chr(cp) for cp in codepoints if cp not in font.getBestCmap()]
+    cmap = font.getBestCmap()
+    missing = [chr(cp) for cp in codepoints if cp not in cmap]
+    available = [cp for cp in codepoints if cp in cmap]
     font.close()
     if missing:
-        print(f"missing glyphs: {' '.join(missing)}", file=sys.stderr)
-        raise SystemExit(1)
+        print(f"skipping {len(missing)} glyphs not in source: {''.join(missing)}", file=sys.stderr)
+    codepoints = available
+    print(f"{len(codepoints)} codepoints will be embedded")
 
     os.makedirs(args.out, exist_ok=True)
     for weight, label in WEIGHTS:

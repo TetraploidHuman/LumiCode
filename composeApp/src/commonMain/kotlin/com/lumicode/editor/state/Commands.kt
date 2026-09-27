@@ -18,6 +18,9 @@ fun defaultCommands(
 ): List<IdeCommand> = listOf(
     IdeCommand("save", "保存档案", "SAVE ARCHIVE", "Ctrl S", "01 / 文件") { state.save() },
     IdeCommand("new", "新建文件", "NEW FILE", "Ctrl N", "01 / 文件") { state.newFile() },
+    IdeCommand("new-folder", "新建文件夹", "NEW FOLDER", "-", "01 / 文件") { state.beginNewFolder() },
+    IdeCommand("rename", "重命名", "RENAME", "-", "01 / 文件") { state.beginRename() },
+    IdeCommand("delete", "删除选中项", "DELETE", "-", "01 / 文件") { state.deleteSelection() },
     IdeCommand("close", "关闭当前文档", "CLOSE DOCUMENT", "Ctrl W", "01 / 文件") {
         state.activePath?.let { state.close(it) }
     },
@@ -27,6 +30,16 @@ fun defaultCommands(
     IdeCommand("find", "文档内查找", "FIND IN DOCUMENT", "Ctrl F", "02 / 查找") {
         state.findVisible = !state.findVisible
         state.findActiveMatch = 0
+    },
+    IdeCommand("replace", "查找并替换", "FIND AND REPLACE", "Ctrl H", "02 / 查找") {
+        state.findVisible = true
+        state.findActiveMatch = 0
+    },
+    IdeCommand("find-workspace", "工作区搜索", "SEARCH WORKSPACE", "Ctrl ⇧ F", "02 / 查找") {
+        state.toggleOverlay(OverlayMode.WORKSPACE_SEARCH)
+    },
+    IdeCommand("goto-line", "跳转到行", "GO TO LINE", "Ctrl G", "02 / 查找") {
+        state.openOverlay(OverlayMode.GOTO_LINE)
     },
     IdeCommand("explorer", "显示/隐藏资源管理器", "TOGGLE EXPLORER", "Ctrl B", "03 / 版面") {
         state.explorerVisible = !state.explorerVisible
@@ -39,10 +52,7 @@ fun defaultCommands(
     },
     IdeCommand("run", "运行分析", "RUN ANALYSIS", "F5", "04 / 运行") { onRun() },
     IdeCommand("export", "导出档案包", "EXPORT BUNDLE", "Ctrl E", "04 / 运行") {
-        state.appendTerminal("[导出] 打包 6 个条目 → archive-16.bundle", LineKind.INFO)
-        state.appendTerminal("[导出] 签名 0xB4·19·F2 ................ 通过", LineKind.OK)
-        state.statusMessage = "档案已导出"
-        state.appendLog("导出档案包")
+        state.exportBundle()
     },
     IdeCommand("next", "下一个文档", "NEXT DOCUMENT", "Ctrl Tab", "05 / 导航") { state.cycleTab(1) },
     IdeCommand("prev", "上一个文档", "PREVIOUS DOCUMENT", "Ctrl ⇧ Tab", "05 / 导航") { state.cycleTab(-1) },
@@ -57,6 +67,9 @@ fun defaultCommands(
     IdeCommand("clear", "清空控制台", "CLEAR CONSOLE", "-", "06 / 系统") {
         state.terminal.clear()
         state.appendTerminal("[00] 控制台已清空", LineKind.MUTED)
+    },
+    IdeCommand("settings", "打开设置", "SETTINGS", "-", "06 / 系统") {
+        state.openOverlay(OverlayMode.SETTINGS)
     },
     IdeCommand("diagnostics", "重新运行诊断", "DIAGNOSTICS", "-", "06 / 系统") {
         state.rescanProblems()

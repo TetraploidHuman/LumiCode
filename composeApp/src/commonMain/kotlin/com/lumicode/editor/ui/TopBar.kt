@@ -80,7 +80,7 @@ fun TopBar(
                     HGap(10.dp)
                     LabelRaw(
                         text = "信息综合处理 · 代码档案工作台",
-                        style = RlType.label(9.5.sp, RlColors.Faint),
+                        style = RlType.label(11.sp, RlColors.Faint),
                     )
                 }
             }
@@ -181,7 +181,9 @@ fun NavigationRow(
         Box(
             Modifier
                 .hoverable(escInteraction)
-                .clickable(interactionSource = escInteraction, indication = null) { onOpenOverview() },
+                .clickable(interactionSource = escInteraction, indication = null) {
+                    state.handleEscape()
+                },
         ) {
             Chip(
                 text = "ESC",
@@ -196,7 +198,7 @@ fun NavigationRow(
             } else {
                 "档案 ${state.activeFile?.meta?.archiveNo ?: "X-000"}   ·   ${state.activePath ?: "—"}"
             },
-            style = RlType.label(10.sp, RlColors.Faint),
+            style = RlType.label(12.sp, RlColors.Faint),
         )
     }
 }
@@ -218,37 +220,37 @@ fun StatusBar(state: IdeState, clock: String, compact: Boolean = false, modifier
                 Box(Modifier.size(5.dp).wash(RlColors.Accent))
             }
             HGap(10.dp)
-            LabelRaw(text = state.statusMessage, style = RlType.label(10.sp, RlColors.Ink))
+            LabelRaw(text = state.statusMessage, style = RlType.label(12.sp, RlColors.Ink))
             if (!compact) {
                 HGap(20.dp)
-                LabelRaw(text = platformLabel(), style = RlType.label(10.sp, RlColors.Faint))
+                LabelRaw(text = platformLabel(), style = RlType.label(12.sp, RlColors.Faint))
                 HGap(20.dp)
                 LabelRaw(
                     text = "${state.openTabs.size} 个文档 · ${state.dirtyCount} 个未保存",
-                    style = RlType.label(10.sp, RlColors.Faint),
+                    style = RlType.label(12.sp, RlColors.Faint),
                 )
             }
             Spacer(Modifier.weight(1f))
             LabelRaw(
                 text = "行 ${state.cursorLine}  列 ${state.cursorColumn}",
-                style = RlType.label(10.sp, RlColors.Muted),
+                style = RlType.label(12.sp, RlColors.Muted),
             )
             if (!compact) {
                 HGap(18.dp)
-                LabelRaw(text = "乔伊斯·摩尔", style = RlType.label(10.sp, RlColors.Muted))
+                LabelRaw(text = "乔伊斯·摩尔", style = RlType.label(12.sp, RlColors.Muted))
             }
             HGap(if (compact) 12.dp else 10.dp)
-            LabelRaw(text = clock, style = RlType.label(10.sp, RlColors.Ink))
+            LabelRaw(text = clock, style = RlType.label(12.sp, RlColors.Ink))
             if (!compact) {
                 HGap(18.dp)
                 // 版本 + 构建戳：一眼分辨「你看的是不是最新构建」
                 LabelRaw(
                     text = "v$LUMICODE_VERSION · $LUMICODE_STAMP",
-                    style = RlType.label(10.sp, RlColors.Muted),
+                    style = RlType.label(12.sp, RlColors.Muted),
                     maxLines = 1,
                 )
                 HGap(18.dp)
-                LabelRaw(text = "重置会话", style = RlType.label(10.sp, RlColors.Faint), maxLines = 1)
+                LabelRaw(text = "重置会话", style = RlType.label(12.sp, RlColors.Faint), maxLines = 1)
             }
         }
     }
@@ -262,8 +264,8 @@ fun TelemetryRail(state: IdeState, clock: String, fps: Int, modifier: Modifier =
     @Composable
     fun Metric(label: String, value: String) {
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-            LabelRaw(text = value, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.InkSoft))
-            LabelRaw(text = label, style = RlType.label(9.5.sp, RlColors.Faint), maxLines = 1)
+            LabelRaw(text = value, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.InkSoft))
+            LabelRaw(text = label, style = RlType.label(11.sp, RlColors.Faint), maxLines = 1)
         }
         Spacer(Modifier.height(10.dp))
     }
@@ -274,7 +276,7 @@ fun TelemetryRail(state: IdeState, clock: String, fps: Int, modifier: Modifier =
             .padding(top = 4.dp, end = RlDimens.pagePad),
         horizontalAlignment = Alignment.End,
     ) {
-        LabelRaw(text = clock, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Ink))
+        LabelRaw(text = clock, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink))
         Spacer(Modifier.height(10.dp))
         Metric("帧率", fps.toString().padStart(2, '0'))
         Metric("行数", activeLines.toString().padStart(3, '0'))
@@ -286,7 +288,7 @@ fun TelemetryRail(state: IdeState, clock: String, fps: Int, modifier: Modifier =
         Spacer(Modifier.weight(1f))
         LabelRaw(
             text = "会话",
-            style = RlType.label(9.5.sp, RlColors.Faint),
+            style = RlType.label(11.sp, RlColors.Faint),
             maxLines = 1,
         )
         Spacer(Modifier.height(4.dp))

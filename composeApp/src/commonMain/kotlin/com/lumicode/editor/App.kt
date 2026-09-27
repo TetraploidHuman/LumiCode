@@ -38,6 +38,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -151,6 +152,7 @@ fun App(state: IdeState) {
             .onPreviewKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                 val ctrl = event.isCtrlPressed || event.isMetaPressed
+                val shift = event.isShiftPressed
                 val overlayOpen = state.overlay != OverlayMode.NONE
                 when {
                     ctrl && event.key == Key.K -> {
@@ -160,6 +162,21 @@ fun App(state: IdeState) {
 
                     ctrl && event.key == Key.P -> {
                         state.toggleOverlay(OverlayMode.QUICK_OPEN)
+                        true
+                    }
+
+                    ctrl && shift && event.key == Key.F -> {
+                        state.toggleOverlay(OverlayMode.WORKSPACE_SEARCH)
+                        true
+                    }
+
+                    ctrl && event.key == Key.G -> {
+                        state.openOverlay(OverlayMode.GOTO_LINE)
+                        true
+                    }
+
+                    event.key == Key.Escape -> {
+                        state.handleEscape()
                         true
                     }
 
@@ -185,8 +202,29 @@ fun App(state: IdeState) {
                         true
                     }
 
+                    ctrl && event.key == Key.R -> {
+                        state.referenceVisible = !state.referenceVisible
+                        true
+                    }
+
+                    ctrl && event.key == Key.E -> {
+                        state.exportBundle()
+                        true
+                    }
+
+                    ctrl && event.key == Key.Tab -> {
+                        state.cycleTab(if (shift) -1 else 1)
+                        true
+                    }
+
                     ctrl && event.key == Key.F -> {
                         state.findVisible = !state.findVisible
+                        state.findActiveMatch = 0
+                        true
+                    }
+
+                    ctrl && event.key == Key.H -> {
+                        state.findVisible = true
                         state.findActiveMatch = 0
                         true
                     }
@@ -201,20 +239,21 @@ fun App(state: IdeState) {
                         true
                     }
 
-                    event.key == Key.Escape -> {
-                        state.handleEscape()
-                        true
-                    }
-
                     else -> false
                 }
             }
             .pointerInput(Unit) {
-                // 点击任何位置都把键盘焦点交回外壳，避免「按 ESC / 快捷键没反应」
+                // 只在「没人处理」的点击上把焦点交回外壳。
+                // 不能用 Initial 抢焦点：会先让编辑器失焦再聚焦，CoreTextField 的
+                // BringIntoView 会把滚动拽回点击前的旧光标（滚轮后再点就回弹）。
                 awaitPointerEventScope {
                     while (true) {
-                        val event = awaitPointerEvent(PointerEventPass.Initial)
-                        if (event.type == PointerEventType.Press) rootFocus.requestFocus()
+                        val event = awaitPointerEvent(PointerEventPass.Final)
+                        if (event.type == PointerEventType.Press &&
+                            event.changes.none { it.isConsumed }
+                        ) {
+                            rootFocus.requestFocus()
+                        }
                     }
                 }
             }

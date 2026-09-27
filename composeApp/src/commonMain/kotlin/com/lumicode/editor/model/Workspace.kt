@@ -54,24 +54,40 @@ data class FileNode(
     val fileCount: Int get() = if (isFolder) children.sumOf { if (it.isFolder) it.fileCount else 1 } else 1
 }
 
-fun buildTree(files: List<CodeFile>): List<FileNode> {
+fun buildTree(
+    files: List<CodeFile>,
+    extraFolders: Collection<String> = emptyList(),
+): List<FileNode> {
     val root = LinkedHashMap<String, MutableList<CodeFile>>()
     for (file in files) {
-        val folder = file.folder
-        root.getOrPut(folder) { mutableListOf() }.add(file)
+        root.getOrPut(file.folder) { mutableListOf() }.add(file)
     }
+
+    fun parentOf(path: String): String =
+        path.substringBeforeLast('/', missingDelimiterValue = "")
+
+    // 显式空文件夹及其祖先也要占位，否则树上看不见。
+    val folderPaths = LinkedHashSet<String>()
+    fun rememberFolder(raw: String) {
+        var f = raw.trim().trimEnd('/')
+        while (f.isNotEmpty()) {
+            folderPaths += f
+            root.getOrPut(f) { mutableListOf() }
+            f = parentOf(f)
+        }
+    }
+    for (file in files) rememberFolder(file.folder)
+    for (folder in extraFolders) rememberFolder(folder)
 
     fun nodesFor(prefix: String): List<FileNode> {
         val out = mutableListOf<FileNode>()
-        val direct = root[prefix].orEmpty()
-        out += direct.sortedBy { it.name }.map { FileNode(it.name, it.path, false) }
+        out += root[prefix].orEmpty()
+            .sortedBy { it.name }
+            .map { FileNode(it.name, it.path, false) }
 
-        val childFolders = root.keys
-            .filter { it.isNotEmpty() && it.startsWith(if (prefix.isEmpty()) "" else "$prefix/") && it != prefix }
-            .map { rest ->
-                val trimmed = if (prefix.isEmpty()) rest else rest.removePrefix("$prefix/")
-                trimmed.substringBefore('/')
-            }
+        val childFolders = folderPaths
+            .filter { parentOf(it) == prefix }
+            .map { it.substringAfterLast('/') }
             .distinct()
             .sorted()
 
@@ -79,7 +95,6 @@ fun buildTree(files: List<CodeFile>): List<FileNode> {
             val childPath = if (prefix.isEmpty()) child else "$prefix/$child"
             out += FileNode(child, childPath, true, nodesFor(childPath))
         }
-        // folders first, then files — archive order
         return out.sortedWith(compareByDescending<FileNode> { it.isFolder }.thenBy { it.name })
     }
 

@@ -106,7 +106,7 @@ fun TabRow(
     selected: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    fontSize: TextUnit = 10.sp,
+    fontSize: TextUnit = 12.sp,
     gap: Dp = 20.dp,
     activeColor: Color = RlColors.Ink,
     hoverColor: Color = RlColors.InkSoft,
@@ -241,7 +241,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, trailing: String
             )
             if (trailing != null) {
                 Spacer(Modifier.width(10.dp))
-                Label(trailing, style = RlType.label(8.5.sp, RlColors.Faint))
+                Label(trailing, style = RlType.label(10.5.sp, RlColors.Faint))
             }
         }
     }
@@ -251,7 +251,7 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, trailing: String
 @Composable
 fun MetaBlock(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = RlColors.Ink) {
     Column(modifier) {
-        Label(label, style = RlType.label(8.5.sp, RlColors.Muted))
+        Label(label, style = RlType.label(10.5.sp, RlColors.Muted))
         Spacer(Modifier.height(5.dp))
         BasicText(value, style = RlType.value.copy(color = valueColor), maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -268,9 +268,9 @@ fun Chip(
     Box(
         modifier
             .wash(fill)
-            .padding(horizontal = 7.dp, vertical = 3.dp),
+            .padding(horizontal = 8.dp, vertical = 4.dp),
     ) {
-        Label(text, style = RlType.label(8.sp, textColor))
+        Label(text, style = RlType.label(12.sp, textColor))
     }
 }
 
@@ -299,12 +299,12 @@ fun SolidBarButton(
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText("+", style = RlType.mono.copy(color = Color.White, fontSize = 11.sp))
+        BasicText("+", style = RlType.mono.copy(color = Color.White, fontSize = 12.sp))
         Spacer(Modifier.width(8.dp))
-        BasicText(text.uppercase(), style = RlType.label(9.sp, Color.White))
+        BasicText(text.uppercase(), style = RlType.label(11.sp, Color.White))
         Spacer(Modifier.weight(1f))
         if (trailing != null) {
-            BasicText(trailing, style = RlType.label(9.sp, Color(0xFFB6BDC6)))
+            BasicText(trailing, style = RlType.label(11.sp, Color(0xFFB6BDC6)))
         }
     }
 }
@@ -331,13 +331,13 @@ fun GhostButton(
         horizontalArrangement = Arrangement.Center,
     ) {
         if (glyph != null && glyphLeading) {
-            BasicText(glyph, style = RlType.mono.copy(color = tint, fontSize = 11.sp))
+            BasicText(glyph, style = RlType.mono.copy(color = tint, fontSize = 12.sp))
             Spacer(Modifier.width(8.dp))
         }
-        Label(text, style = RlType.label(9.sp, tint))
+        Label(text, style = RlType.label(11.sp, tint))
         if (glyph != null && !glyphLeading) {
             Spacer(Modifier.width(8.dp))
-            BasicText(glyph, style = RlType.mono.copy(color = tint, fontSize = 11.sp))
+            BasicText(glyph, style = RlType.mono.copy(color = tint, fontSize = 12.sp))
         }
     }
 }

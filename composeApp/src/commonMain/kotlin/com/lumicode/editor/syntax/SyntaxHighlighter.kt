@@ -107,6 +107,44 @@ object SyntaxHighlighter {
         }
     }
 
+    data class FindMatch(val start: Int, val end: Int) {
+        val length: Int get() = end - start
+    }
+
+    /**
+     * 文档内查找：字面量或正则；[caseSensitive] / [regex] 控制匹配方式。
+     * 非法正则返回空列表（不抛）。
+     */
+    fun findMatches(
+        text: String,
+        query: String,
+        caseSensitive: Boolean = false,
+        regex: Boolean = false,
+    ): List<FindMatch> {
+        if (query.isEmpty()) return emptyList()
+        if (regex) {
+            val options = buildSet {
+                if (!caseSensitive) add(RegexOption.IGNORE_CASE)
+            }
+            val pattern = try {
+                Regex(query, options)
+            } catch (_: Throwable) {
+                return emptyList()
+            }
+            return pattern.findAll(text)
+                .map { FindMatch(it.range.first, it.range.last + 1) }
+                .filter { it.length > 0 }
+                .toList()
+        }
+        val out = mutableListOf<FindMatch>()
+        var index = text.indexOf(query, 0, ignoreCase = !caseSensitive)
+        while (index >= 0) {
+            out += FindMatch(index, index + query.length)
+            index = text.indexOf(query, index + query.length, ignoreCase = !caseSensitive)
+        }
+        return out
+    }
+
     /**
      * Wraps [highlight] and additionally underlines every occurrence of [query],
      * marking the active match with a solid background.
@@ -116,14 +154,14 @@ object SyntaxHighlighter {
         language: Language,
         query: String,
         activeMatch: Int,
+        caseSensitive: Boolean = false,
+        regex: Boolean = false,
     ): AnnotatedString {
         val base = highlight(text, language)
         if (query.isEmpty()) return base
         return buildAnnotatedString {
             append(base)
-            var index = text.indexOf(query, 0, ignoreCase = true)
-            var ordinal = 0
-            while (index >= 0) {
+            findMatches(text, query, caseSensitive, regex).forEachIndexed { ordinal, match ->
                 val isActive = ordinal == activeMatch
                 addStyle(
                     SpanStyle(
@@ -131,25 +169,168 @@ object SyntaxHighlighter {
                         color = if (isActive) RlColors.Ink else RlColors.InkSoft,
                         fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
                     ),
-                    index,
-                    index + query.length,
+                    match.start,
+                    match.end,
                 )
-                ordinal++
-                index = text.indexOf(query, index + query.length, ignoreCase = true)
             }
         }
     }
 
-    fun countMatches(text: String, query: String): Int {
-        if (query.isEmpty()) return 0
-        var count = 0
-        var index = text.indexOf(query, 0, ignoreCase = true)
-        while (index >= 0) {
-            count++
-            index = text.indexOf(query, index + query.length, ignoreCase = true)
+    fun countMatches(
+        text: String,
+        query: String,
+        caseSensitive: Boolean = false,
+        regex: Boolean = false,
+    ): Int = findMatches(text, query, caseSensitive, regex).size
+
+    /**
+     * 语法高亮 + 查找命中 + 当前词出现 + 配对括号。
+     * [caret] / [selEnd] 是**已变换文本**上的偏移（折叠后）。
+     */
+    fun highlightEditor(
+        text: String,
+        language: Language,
+        query: String,
+        activeMatch: Int,
+        caret: Int,
+        selEnd: Int,
+        caseSensitive: Boolean = false,
+        regex: Boolean = false,
+    ): AnnotatedString {
+        val base = highlightWithMatches(text, language, query, activeMatch, caseSensitive, regex)
+        return buildAnnotatedString {
+            append(base)
+
+            // 当前词 / 非空选区：高亮全文同词出现（查找激活时跳过，避免叠色）
+            if (query.isEmpty()) {
+                val word = selectedOrWord(text, caret, selEnd)
+                if (word != null && word.length >= 2) {
+                    val style = SpanStyle(background = RlColors.AccentGlow)
+                    var index = 0
+                    while (true) {
+                        index = text.indexOf(word, index)
+                        if (index < 0) break
+                        val end = index + word.length
+                        // 只标整词边界
+                        val leftOk = index == 0 || !isWordChar(text[index - 1])
+                        val rightOk = end >= text.length || !isWordChar(text[end])
+                        if (leftOk && rightOk) {
+                            addStyle(style, index, end)
+                        }
+                        index = end
+                    }
+                }
+            }
+
+            findBracketPair(text, caret)?.let { (a, b) ->
+                val style = SpanStyle(
+                    background = RlColors.AccentSoft,
+                    color = RlColors.AccentDeep,
+                    fontWeight = FontWeight.Bold,
+                )
+                addStyle(style, a, a + 1)
+                addStyle(style, b, b + 1)
+            }
         }
-        return count
     }
+
+    fun selectedOrWord(text: String, caret: Int, selEnd: Int): String? {
+        val start = minOf(caret, selEnd).coerceIn(0, text.length)
+        val end = maxOf(caret, selEnd).coerceIn(0, text.length)
+        if (end > start) {
+            val selected = text.substring(start, end)
+            return selected.takeIf { it.isNotEmpty() && '\n' !in it && selected.length <= 64 }
+        }
+        return wordRangeAt(text, caret)?.let { (s, e) -> text.substring(s, e) }
+    }
+
+    fun wordRangeAt(text: String, offset: Int): Pair<Int, Int>? {
+        if (text.isEmpty()) return null
+        val o = offset.coerceIn(0, text.length)
+        val probe = when {
+            o < text.length && isWordChar(text[o]) -> o
+            o > 0 && isWordChar(text[o - 1]) -> o - 1
+            else -> return null
+        }
+        var s = probe
+        while (s > 0 && isWordChar(text[s - 1])) s--
+        var e = probe + 1
+        while (e < text.length && isWordChar(text[e])) e++
+        return s to e
+    }
+
+    private fun isWordChar(c: Char): Boolean =
+        c.isLetterOrDigit() || c == '_' || c == '$'
+
+    private val OPENERS = mapOf('(' to ')', '[' to ']', '{' to '}')
+    private val CLOSERS = mapOf(')' to '(', ']' to '[', '}' to '{')
+
+    /**
+     * 在光标处（或紧邻左侧）找配对括号，返回两个括号的索引。
+     * 不做字符串/注释感知，对档案体量足够。
+     */
+    fun findBracketPair(text: String, caret: Int): Pair<Int, Int>? {
+        if (text.isEmpty()) return null
+        val c = caret.coerceIn(0, text.length)
+        val candidates = buildList {
+            if (c < text.length) add(c)
+            if (c > 0) add(c - 1)
+        }
+        for (i in candidates) {
+            val ch = text[i]
+            OPENERS[ch]?.let { closer ->
+                matchForward(text, i, ch, closer)?.let { return i to it }
+            }
+            CLOSERS[ch]?.let { opener ->
+                matchBackward(text, i, opener, ch)?.let { return it to i }
+            }
+        }
+        return null
+    }
+
+    private fun matchForward(text: String, from: Int, open: Char, close: Char): Int? {
+        var depth = 0
+        for (i in from until text.length) {
+            when (text[i]) {
+                open -> depth++
+                close -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+        }
+        return null
+    }
+
+    private fun matchBackward(text: String, from: Int, open: Char, close: Char): Int? {
+        var depth = 0
+        for (i in from downTo 0) {
+            when (text[i]) {
+                close -> depth++
+                open -> {
+                    depth--
+                    if (depth == 0) return i
+                }
+            }
+        }
+        return null
+    }
+
+    fun offsetOfMatch(
+        text: String,
+        query: String,
+        ordinal: Int,
+        caseSensitive: Boolean = false,
+        regex: Boolean = false,
+    ): Int = findMatches(text, query, caseSensitive, regex).getOrNull(ordinal)?.start ?: -1
+
+    fun matchAt(
+        text: String,
+        query: String,
+        ordinal: Int,
+        caseSensitive: Boolean = false,
+        regex: Boolean = false,
+    ): FindMatch? = findMatches(text, query, caseSensitive, regex).getOrNull(ordinal)
 
     fun lineOf(text: String, offset: Int): Int = text.take(offset.coerceIn(0, text.length)).count { it == '\n' }
 

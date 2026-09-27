@@ -159,12 +159,12 @@ object RlType {
     )
 
     /** Micro label: uppercase, wide tracking, monospace — used everywhere as chrome. */
-    fun label(size: TextUnit = 11.sp, color: Color = RlColors.Muted) = TextStyle(
+    fun label(size: TextUnit = 12.sp, color: Color = RlColors.Muted) = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Medium,
         fontSize = size,
         lineHeight = size * 1.35f,
-        letterSpacing = 0.16.em,
+        letterSpacing = 0.14.em,
         color = color,
     )
 
@@ -189,8 +189,8 @@ object RlType {
     val monoMicro: TextStyle get() = TextStyle(
         fontFamily = Mono,
         fontWeight = FontWeight.Normal,
-        fontSize = 11.sp,
-        lineHeight = 15.sp,
+        fontSize = 12.sp,
+        lineHeight = 16.sp,
         letterSpacing = 0.04.em,
         color = RlColors.Faint,
     )
@@ -227,7 +227,8 @@ object RlDimens {
     /** 页面外缘留白：文字不贴边，但平面一直铺到窗口边缘。 */
     val pagePad = 22.dp
 
-    val gutterWidth = 56.dp
+    /** 行号 + 折叠三角；比纯行号略宽。 */
+    val gutterWidth = 64.dp
     val explorerWidth = 236.dp
     val referenceWidth = 320.dp
     val railWidth = 116.dp
