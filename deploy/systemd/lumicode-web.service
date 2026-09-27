@@ -1,5 +1,5 @@
 [Unit]
-Description=LUMICODE ANALYSIS OS — Kotlin/Wasm 静态站点（供 Caddy 反代 /code）
+Description=LumiCode ANALYSIS OS — Kotlin/Wasm 静态站点（供 Caddy 反代 /code）
 Documentation=https://github.com/TetraploidHuman/LumiCode
 After=network.target
 

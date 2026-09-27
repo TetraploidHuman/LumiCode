@@ -541,7 +541,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(text = platformTag(), style = RlType.label(11.sp, RlColors.Faint))
             Spacer(Modifier.weight(1f))
-            LabelRaw(text = "由 LUMICODE 驱动", style = RlType.label(12.sp, RlColors.Ink))
+            LabelRaw(text = "由 LumiCode 驱动", style = RlType.label(12.sp, RlColors.Ink))
             Spacer(Modifier.width(6.dp))
             Box(Modifier.size(width = 26.dp, height = 3.dp).wash(RlColors.Accent))
         }

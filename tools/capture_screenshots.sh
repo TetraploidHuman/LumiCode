@@ -43,7 +43,7 @@ done
 
 WID=$(xdotool search --onlyvisible --class firefox | head -1 || true)
 if [ -z "${WID:-}" ]; then
-  WID=$(xdotool search --onlyvisible --name LUMICODE | head -1 || true)
+  WID=$(xdotool search --onlyvisible --name LumiCode | head -1 || true)
 fi
 if [ -z "${WID:-}" ]; then
   WID=$(xdotool search --onlyvisible --class Navigator | head -1 || true)

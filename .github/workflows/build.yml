@@ -400,14 +400,14 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
-          name: "LUMICODE — ANALYSIS OS ${{ steps.meta.outputs.tag }}"
+          name: "LumiCode — ANALYSIS OS ${{ steps.meta.outputs.tag }}"
           target_commitish: ${{ github.sha }}
           draft: false
           prerelease: false
           fail_on_unmatched_files: false
           files: artifacts/**/*
           body: |
-            ## LUMICODE — ANALYSIS OS（档案风格代码编辑器 Demo）
+            ## LumiCode — ANALYSIS OS（档案风格代码编辑器 Demo）
 
             同一份 Compose Multiplatform 代码，四个平台目标。
 

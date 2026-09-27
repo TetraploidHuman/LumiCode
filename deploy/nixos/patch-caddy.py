@@ -31,7 +31,7 @@ CONFIG = "/etc/nixos/configuration.nix"
 VHOST_RE = re.compile(r'virtualHosts\."http://(?P<host>[^"]+):11024"\.extraConfig = \'\'')
 
 SNIPPET = """
-      # ==== LUMICODE web（Kotlin/Wasm）====
+      # ==== LumiCode web（Kotlin/Wasm）====
       # 静态文件由用户级 systemd 服务 lumicode-web.service 提供（127.0.0.1:8099），
       # 这里只做反代；重建前端后跑 deploy/publish-web.sh 即可刷新。
       @lumicodeCode path /code

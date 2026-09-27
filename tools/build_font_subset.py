@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate the bundled UI (sans) subsets used by LUMICODE.
+"""Regenerate the bundled UI (sans) subsets used by LumiCode.
 
 界面字族是 Noto Sans CJK SC 的子集（标题 / 正文 / 中文说明）。
 代码与标签用的等宽字族由 tools/build_mono_font.py 生成（JetBrains Mono + 中文字形合并）。

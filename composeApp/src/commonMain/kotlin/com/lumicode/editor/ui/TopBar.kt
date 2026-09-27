@@ -58,7 +58,7 @@ fun TopBar(
             // 报头：靠字重对比拉层级 —— 黑体粗字 + 细字，不用分栏线
             Row(verticalAlignment = Alignment.Bottom) {
                 BasicText(
-                    text = "LUMICODE",
+                    text = "LumiCode",
                     style = RlType.title.copy(
                         fontSize = if (compact) 19.sp else 30.sp,
                         lineHeight = if (compact) 21.sp else 31.sp,

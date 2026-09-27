@@ -87,7 +87,7 @@ def main() -> int:
     with ReusableServer((args.host, args.port), handler) as httpd:
         host, port = httpd.server_address[:2]
         display = "127.0.0.1" if host in ("0.0.0.0", "") else host
-        print(f"LUMICODE wasm dist: {root}", flush=True)
+        print(f"LumiCode wasm dist: {root}", flush=True)
         print(f"serving on http://{display}:{port}/  (Ctrl+C to stop)", flush=True)
         try:
             httpd.serve_forever()

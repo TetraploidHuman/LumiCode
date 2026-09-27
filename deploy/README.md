@@ -1,4 +1,4 @@
-# 把 LUMICODE 的 Web(Wasm) 版挂到 `11024/code`
+# 把 LumiCode 的 Web(Wasm) 版挂到 `11024/code`
 
 本机的 Caddy（`services.caddy`，监听 `:11024`）已经代理了 `/ds`、`/rtwind`、`/wind`、`/love`
 等路径。这里用**和 `/ds` 相同的原理**再加一个 `/code`：Caddy 只负责路径前缀与反代，

@@ -614,7 +614,7 @@ private fun SettingsOverlay(state: IdeState, compact: Boolean) {
         }
 
         SettingSection("关于")
-        InfoRow("版本", "LUMICODE $LUMICODE_VERSION · 构建 $LUMICODE_STAMP")
+        InfoRow("版本", "LumiCode $LUMICODE_VERSION · 构建 $LUMICODE_STAMP")
         InfoRow("运行平台", platformLabel())
         InfoRow("代码字体", "JetBrains Mono + Noto Sans CJK（合并子集）")
         InfoRow("界面字体", "Noto Sans CJK SC")

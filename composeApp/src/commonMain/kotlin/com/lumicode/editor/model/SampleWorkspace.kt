@@ -48,7 +48,7 @@ object SampleWorkspace {
                 import com.lumicode.editor.App
 
                 /**
-                 * LUMICODE ANALYSIS OS — 工作区入口。
+                 * LumiCode ANALYSIS OS — 工作区入口。
                  * 档案 NO.001 / 内部数据库。
                  * 负责装配窗口、主题与全局快捷键。
                  */
@@ -180,7 +180,7 @@ object SampleWorkspace {
                 abstract = "操作手册。说明快捷键、档案编号规则，以及为什么这个编辑器把所有面板都叫做“档案区”。",
             ),
             content = """
-                # LUMICODE — ANALYSIS OS
+                # LumiCode — ANALYSIS OS
 
                 > 无界风格代码编辑器：一整块连续平面，只靠留白与字重分区。
 

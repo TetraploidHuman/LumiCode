@@ -1,4 +1,4 @@
-# LUMICODE — ANALYSIS OS
+# LumiCode — ANALYSIS OS
 
 一个「档案室／分析终端」风格的代码编辑器 Demo，使用 **Compose Multiplatform** 编写，同一份 UI 代码同时运行在
 **Android / Windows / Linux / Web(Wasm)** 四个平台。视觉语言参考了 *RHINE LAB ANALYSIS OS* 那种纸质底色 +
@@ -6,7 +6,7 @@
 
 ![桌面端总览](docs/screenshots/01-desktop-overview.png)
 
-> 界面以中文为主（`LUMICODE` / `ANALYSIS OS` / `NO.001` 这类装饰性文字保留英文），
+> 界面以中文为主（品牌名 **LumiCode**；`ANALYSIS OS` / `NO.001` 等装饰性文字保留英文），
 > 代码与标签使用 **JetBrains Mono**，设置页与工作区总览见下文。
 
 ---

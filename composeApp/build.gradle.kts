@@ -138,6 +138,15 @@ compose.desktop {
             packageVersion = "0.2.3"
             description = "LumiCode — Archive-style code editor"
             vendor = "LumiCode"
+            windows {
+                iconFile.set(project.file("src/desktopMain/resources/icon.ico"))
+            }
+            linux {
+                iconFile.set(project.file("src/desktopMain/resources/icon.png"))
+            }
+            macOS {
+                iconFile.set(project.file("src/desktopMain/resources/icon.png"))
+            }
         }
     }
 }

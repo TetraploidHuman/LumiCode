@@ -28,7 +28,7 @@ fun main() = application {
     Window(
         onCloseRequest = ::exitApplication,
         state = windowState,
-        title = "LUMICODE — ANALYSIS OS",
+        title = "LumiCode — ANALYSIS OS",
     ) {
         // A tiny minimum makes it possible to preview the compact layout on desktop.
         window.minimumSize = if (override != null) Dimension(360, 520) else Dimension(1180, 720)
