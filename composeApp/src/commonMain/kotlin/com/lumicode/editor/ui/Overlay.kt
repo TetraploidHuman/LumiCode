@@ -4,6 +4,9 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
@@ -113,8 +116,11 @@ fun OverlayHost(state: IdeState, commands: List<IdeCommand>, compact: Boolean = 
 
     AnimatedVisibility(
         visibleState = sheetVisible,
-        enter = fadeIn(RlMotion.enter(220)),
-        exit = fadeOut(RlMotion.exit(120)),
+        enter = fadeIn(RlMotion.enter(160)) +
+            scaleIn(RlMotion.enter(190), initialScale = 0.988f) +
+            slideInVertically(RlMotion.enter(190)) { -it / 56 },
+        exit = fadeOut(RlMotion.exit(90)) +
+            scaleOut(RlMotion.exit(120), targetScale = 0.992f),
         label = "sheet",
     ) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
