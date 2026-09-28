@@ -47,7 +47,7 @@ fun defaultCommands(
         state.referenceVisible = !state.referenceVisible
         state.persistPanelPrefs()
     },
-    IdeCommand("collab", "打开共作台", "OPEN COLLAB", "Ctrl ⇧ A", "03 / 版面") {
+    IdeCommand("collab", "打开任务板", "OPEN TASKS", "Ctrl ⇧ A", "03 / 版面") {
         state.referenceVisible = true
         state.collab.focusCollab()
         state.persistPanelPrefs()
@@ -56,14 +56,14 @@ fun defaultCommands(
         state.outputVisible = !state.outputVisible
         state.persistPanelPrefs()
     },
-    IdeCommand("collab-submit", "提交共作意图", "SUBMIT INTENT", "-", "07 / 共作") {
+    IdeCommand("collab-open", "新开一路 Agent", "OPEN LANE", "-", "07 / 共作") {
         state.referenceVisible = true
         state.collab.focusCollab()
-        state.collab.submitIntent()
+        state.collab.openLane()
         state.persistPanelPrefs()
     },
-    IdeCommand("collab-handwriting", "接手手写", "TAKE OVER", "-", "07 / 共作") {
-        state.collab.takeOverHandwriting()
+    IdeCommand("collab-stop", "关掉全部 Agent", "CLOSE ALL LANES", "-", "07 / 共作") {
+        state.collab.stop()
         state.statusMessage = "共作 · ${state.collab.phaseLabel}"
     },
     IdeCommand("run", "运行分析", "RUN ANALYSIS", "F5", "04 / 运行") { onRun() },

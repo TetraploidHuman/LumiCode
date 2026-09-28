@@ -57,10 +57,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumicode.editor.model.Language
-import com.lumicode.editor.state.CollabPhase
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.LineKind
 import com.lumicode.editor.state.OverlayMode
+import com.lumicode.editor.state.TaskStatus
 import com.lumicode.editor.syntax.SyntaxHighlighter
 import com.lumicode.editor.ui.components.Chip
 import com.lumicode.editor.ui.components.GhostButton
@@ -102,7 +102,7 @@ fun EditorPanel(
         }
 
         AnimatedVisibility(
-            visible = state.collab.phase == CollabPhase.HANDWRITING,
+            visible = state.collab.isRunning || state.collab.hasProposal,
             enter = expandVertically(RlMotion.enter(160), expandFrom = Alignment.Top) +
                 fadeIn(RlMotion.enter(140)),
             exit = shrinkVertically(RlMotion.exit(120), shrinkTowards = Alignment.Top) +
@@ -169,6 +169,10 @@ fun EditorPanel(
 
 @Composable
 private fun CollabEditorBanner(state: IdeState) {
+    val collab = state.collab
+    val focus = collab.selectedTask
+    val running = collab.isRunning
+    val workingNames = collab.workers.filter { it.taskId != null }.joinToString("、") { it.name }
     Row(
         Modifier
             .fillMaxWidth()
@@ -176,15 +180,44 @@ private fun CollabEditorBanner(state: IdeState) {
             .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        LabelRaw(
-            text = "你已接手 · 写完后交还 Agent",
-            style = RlType.label(11.sp, RlColors.AccentDeep),
-        )
-        Spacer(Modifier.weight(1f))
-        GhostButton(text = "交还 Agent", onClick = {
-            state.collab.returnToAgent()
-            state.statusMessage = "共作 · ${state.collab.phaseLabel}"
-        })
+        Column(Modifier.weight(1f)) {
+            LabelRaw(
+                text = when {
+                    focus?.status == TaskStatus.PROPOSAL ->
+                        "${focus.agentName ?: "Agent"} · ${focus.proposalPath}:${focus.proposalStart}–${focus.proposalEnd}"
+                    running ->
+                        "并行在跑 · $workingNames"
+                    else -> collab.briefing
+                },
+                style = RlType.label(11.sp, RlColors.AccentDeep),
+                maxLines = 2,
+            )
+            LabelRaw(
+                text = focus?.title?.let { if (it.length <= 28) it else it.take(28) + "…" }
+                    ?: "${collab.tasks.count { it.status == TaskStatus.WORKING }} 路工作中",
+                style = RlType.label(10.sp, RlColors.Muted),
+                maxLines = 1,
+            )
+        }
+        if (focus?.status == TaskStatus.PROPOSAL) {
+            GhostButton(text = "换写法", onClick = {
+                collab.tryAgain(focus.id)
+                state.statusMessage = "共作 · ${collab.phaseLabel}"
+            })
+            GhostButton(text = "这路别动", onClick = {
+                collab.leaveIt(focus.id)
+                state.statusMessage = "共作 · ${collab.phaseLabel}"
+            })
+            GhostButton(text = "顺着", onClick = {
+                collab.goAlong(focus.id)
+                state.statusMessage = "共作 · ${collab.phaseLabel}"
+            })
+        } else if (running) {
+            GhostButton(text = "全停", onClick = {
+                collab.stop()
+                state.statusMessage = "共作 · ${collab.phaseLabel}"
+            })
+        }
     }
 }
 

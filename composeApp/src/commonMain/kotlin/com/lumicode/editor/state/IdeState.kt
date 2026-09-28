@@ -136,7 +136,7 @@ class IdeState(initialFiles: List<CodeFile>) {
         appendTerminal("[01] 签名校验 ......................... 通过", LineKind.OK)
         appendTerminal("[02] 会话已授权 · ${platformLabel()}", LineKind.INFO)
         appendLog("工作区已挂载")
-        collab.appendAgent("[00] 共作台就绪 · DSH 未接入（MVP 假数据）", LineKind.MUTED)
+        collab.appendAgent("[项目] 小队共作演示 · 按需开路 · 人当上级", LineKind.MUTED)
         open("src/Main.kt")
         rescanProblems()
     }

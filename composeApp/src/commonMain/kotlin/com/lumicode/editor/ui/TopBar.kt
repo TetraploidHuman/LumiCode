@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.sp
 import com.lumicode.editor.platform.platformLabel
 import com.lumicode.editor.LUMICODE_STAMP
 import com.lumicode.editor.LUMICODE_VERSION
-import com.lumicode.editor.state.CollabPhase
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.OverlayMode
 import com.lumicode.editor.ui.components.AccentTick
@@ -222,11 +221,12 @@ fun StatusBar(state: IdeState, clock: String, compact: Boolean = false, modifier
             }
             HGap(10.dp)
             LabelRaw(text = state.statusMessage, style = RlType.label(12.sp, RlColors.Ink))
-            if (!compact && state.collab.phase != CollabPhase.IDLE) {
+            if (!compact && (state.collab.isRunning || state.collab.hasProposal)) {
                 HGap(14.dp)
                 LabelRaw(
-                    text = state.collab.phaseLabel,
+                    text = state.collab.briefing.take(22),
                     style = RlType.label(11.sp, RlColors.Accent),
+                    maxLines = 1,
                 )
             }
             if (!compact) {
