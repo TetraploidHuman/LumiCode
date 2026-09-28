@@ -47,9 +47,24 @@ fun defaultCommands(
         state.referenceVisible = !state.referenceVisible
         state.persistPanelPrefs()
     },
+    IdeCommand("collab", "打开共作台", "OPEN COLLAB", "Ctrl ⇧ A", "03 / 版面") {
+        state.referenceVisible = true
+        state.collab.focusCollab()
+        state.persistPanelPrefs()
+    },
     IdeCommand("console", "显示/隐藏分析控制台", "TOGGLE CONSOLE", "Ctrl J", "03 / 版面") {
         state.outputVisible = !state.outputVisible
         state.persistPanelPrefs()
+    },
+    IdeCommand("collab-submit", "提交共作意图", "SUBMIT INTENT", "-", "07 / 共作") {
+        state.referenceVisible = true
+        state.collab.focusCollab()
+        state.collab.submitIntent()
+        state.persistPanelPrefs()
+    },
+    IdeCommand("collab-handwriting", "接手手写", "TAKE OVER", "-", "07 / 共作") {
+        state.collab.takeOverHandwriting()
+        state.statusMessage = "共作 · ${state.collab.phaseLabel}"
     },
     IdeCommand("run", "运行分析", "RUN ANALYSIS", "F5", "04 / 运行") { onRun() },
     IdeCommand("export", "导出档案包", "EXPORT BUNDLE", "Ctrl E", "04 / 运行") {

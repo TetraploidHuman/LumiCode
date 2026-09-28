@@ -110,6 +110,9 @@ class IdeState(initialFiles: List<CodeFile>) {
     var runToken by mutableStateOf(0)
     var statusMessage by mutableStateOf("会话已授权")
 
+    /** 人机共作台（MVP：本地状态机，后端尚未接 DSH）。 */
+    val collab = CollabState()
+
     var pendingRevealLine by mutableStateOf<Int?>(null)
     /** 递增令牌，保证同号行也能再次跳转。 */
     var pendingRevealSeq by mutableStateOf(0)
@@ -133,6 +136,7 @@ class IdeState(initialFiles: List<CodeFile>) {
         appendTerminal("[01] 签名校验 ......................... 通过", LineKind.OK)
         appendTerminal("[02] 会话已授权 · ${platformLabel()}", LineKind.INFO)
         appendLog("工作区已挂载")
+        collab.appendAgent("[00] 共作台就绪 · DSH 未接入（MVP 假数据）", LineKind.MUTED)
         open("src/Main.kt")
         rescanProblems()
     }
@@ -682,6 +686,7 @@ class IdeState(initialFiles: List<CodeFile>) {
         treeSelection = null
         cancelTreeDialog()
         statusMessage = "会话已授权"
+        collab.resetRound()
         appendTerminal("[00] 重置会话 ......................... 通过", LineKind.OK)
         appendLog("重置会话")
         open("src/Main.kt")

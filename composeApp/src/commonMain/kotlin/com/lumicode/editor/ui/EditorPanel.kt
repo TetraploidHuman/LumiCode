@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lumicode.editor.model.Language
+import com.lumicode.editor.state.CollabPhase
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.LineKind
 import com.lumicode.editor.state.OverlayMode
@@ -100,6 +101,17 @@ fun EditorPanel(
             FindBar(state, compact)
         }
 
+        AnimatedVisibility(
+            visible = state.collab.phase == CollabPhase.HANDWRITING,
+            enter = expandVertically(RlMotion.enter(160), expandFrom = Alignment.Top) +
+                fadeIn(RlMotion.enter(140)),
+            exit = shrinkVertically(RlMotion.exit(120), shrinkTowards = Alignment.Top) +
+                fadeOut(RlMotion.exit(80)),
+            label = "collabBanner",
+        ) {
+            CollabEditorBanner(state)
+        }
+
         val active = state.activePath
         if (active == null) {
             EmptyDocument()
@@ -115,6 +127,7 @@ fun EditorPanel(
                 val problemLines = state.problems
                     .filter { it.path == active }
                     .associate { it.line to it.severity }
+                val pendingReview = state.collab.pendingReviewLines(active)
 
                 CodeEditor(
                     path = active,
@@ -134,6 +147,7 @@ fun EditorPanel(
                     revealSeq = state.pendingRevealSeq,
                     documentEpoch = state.documentEpoch,
                     problemLines = problemLines,
+                    pendingReviewLines = pendingReview,
                     onTextChange = { state.updateContent(active, it) },
                     onCursorChange = { line, column, selection, selStart, selEnd ->
                         state.cursorLine = line
@@ -150,6 +164,27 @@ fun EditorPanel(
         }
 
         EditorFooter(state, onRun, compact)
+    }
+}
+
+@Composable
+private fun CollabEditorBanner(state: IdeState) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .wash(RlColors.AccentSoft)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        LabelRaw(
+            text = "你已接手 · 写完后交还 Agent",
+            style = RlType.label(11.sp, RlColors.AccentDeep),
+        )
+        Spacer(Modifier.weight(1f))
+        GhostButton(text = "交还 Agent", onClick = {
+            state.collab.returnToAgent()
+            state.statusMessage = "共作 · ${state.collab.phaseLabel}"
+        })
     }
 }
 
@@ -593,7 +628,7 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             .fillMaxWidth()
             .height(188.dp),
     ) {
-        val consoleTabs = listOf("01 终端", "02 问题", "03 访问日志")
+        val consoleTabs = listOf("01 终端", "02 问题", "03 访问日志", "04 Agent")
         TabRow(
             titles = consoleTabs,
             selected = tab,
@@ -605,7 +640,8 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                 val count = when (tab) {
                     0 -> state.terminal.size
                     1 -> state.problems.size
-                    else -> state.log.size
+                    2 -> state.log.size
+                    else -> state.collab.agentLog.size
                 }
                 LabelRaw(text = count.toString().padStart(3, '0'), style = RlType.label(12.sp, RlColors.Muted))
                 HGap(16.dp)
@@ -684,17 +720,46 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
                             HGap(12.dp)
                             LabelRaw(
                                 text = problem.message,
-                                style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.Muted),
+                                style = RlType.mono.copy(
+                                    fontSize = 11.5.sp,
+                                    color = if (rowHovered) RlColors.Ink else RlColors.Muted,
+                                ),
                             )
                         }
                     }
                 }
 
-                else -> state.log.takeLast(8).forEach { entry ->
+                2 -> state.log.takeLast(8).forEach { entry ->
                     Row(Modifier.fillMaxWidth()) {
                         LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint))
                         HGap(12.dp)
                         LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft))
+                    }
+                }
+
+                else -> if (state.collab.agentLog.isEmpty()) {
+                    Label("Agent 待命 · 共作日志将显示于此", style = RlType.label(12.sp, RlColors.Faint))
+                } else {
+                    state.collab.agentLog.takeLast(9).forEach { entry ->
+                        Row(Modifier.fillMaxWidth()) {
+                            LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint))
+                            HGap(12.dp)
+                            BasicText(
+                                text = entry.text,
+                                style = RlType.mono.copy(
+                                    fontSize = 11.5.sp,
+                                    color = when (entry.kind) {
+                                        LineKind.OK -> RlColors.CodeString
+                                        LineKind.WARN -> RlColors.CodeAnnotation
+                                        LineKind.ERROR -> Color(0xFF8C3A2B)
+                                        LineKind.MUTED -> RlColors.Faint
+                                        else -> RlColors.InkSoft
+                                    },
+                                ),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
             }

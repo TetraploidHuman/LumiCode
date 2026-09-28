@@ -50,6 +50,7 @@ import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.LineKind
 import com.lumicode.editor.state.OverlayMode
 import com.lumicode.editor.state.defaultCommands
+import com.lumicode.editor.ui.CollaboratePanel
 import com.lumicode.editor.ui.EditorPanel
 import com.lumicode.editor.ui.ExplorerPanel
 import com.lumicode.editor.ui.NavigationRow
@@ -179,6 +180,13 @@ fun App(state: IdeState) {
                         true
                     }
 
+                    ctrl && shift && event.key == Key.A -> {
+                        state.referenceVisible = true
+                        state.collab.focusCollab()
+                        state.persistPanelPrefs()
+                        true
+                    }
+
                     ctrl && event.key == Key.E -> {
                         state.exportBundle()
                         true
@@ -282,7 +290,7 @@ fun App(state: IdeState) {
                         .weight(1f)
                         .fillMaxHeight()
                         .padding(
-                            start = if (state.explorerVisible && !compact) RlDimens.seam else RlDimens.pagePad,
+                            start = if (state.explorerVisible && !compact) RlDimens.panelGap else RlDimens.pagePad,
                             end = RlDimens.pagePad,
                             bottom = 10.dp,
                         ),
@@ -327,9 +335,13 @@ fun App(state: IdeState) {
                     ) + fadeOut(RlMotion.exit(90)),
                     label = "reference",
                 ) {
-                    ReferencePanel(state)
+                    if (state.collab.rightTab == 1) {
+                        CollaboratePanel(state)
+                    } else {
+                        ReferencePanel(state)
+                    }
                 }
-                if (!compact && RlSettings.showRail) TelemetryRail(state, clock, fps)
+                if (!compact && RlSettings.showRail) TelemetryRail(state, fps)
             }
 
             StatusBar(state, clock, compact = compact)
@@ -368,7 +380,13 @@ fun App(state: IdeState) {
             ) {
                 when {
                     state.explorerVisible -> ExplorerPanel(state, showFooter = false)
-                    state.referenceVisible -> ReferencePanel(state)
+                    state.referenceVisible -> {
+                        if (state.collab.rightTab == 1) {
+                            CollaboratePanel(state)
+                        } else {
+                            ReferencePanel(state)
+                        }
+                    }
                 }
             }
         }

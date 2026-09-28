@@ -83,7 +83,7 @@ fun ExplorerPanel(state: IdeState, showFooter: Boolean = true, modifier: Modifie
         Column(
             Modifier
                 .fillMaxHeight()
-                .padding(start = RlDimens.pagePad, top = 16.dp, end = 14.dp),
+                .padding(start = RlDimens.pagePad, top = 16.dp, end = RlDimens.panelGap),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Label("工作区")
@@ -357,7 +357,7 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
         modifier
             .width(RlDimens.referenceWidth)
             .fillMaxHeight()
-            .padding(start = 14.dp, top = 16.dp, end = RlDimens.pagePad),
+            .padding(start = RlDimens.panelGap, top = 16.dp, end = 6.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
@@ -367,7 +367,9 @@ fun ReferencePanel(state: IdeState, modifier: Modifier = Modifier) {
             Spacer(Modifier.weight(1f))
             Label("参考区")
         }
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(10.dp))
+        RightPaneTabs(state)
+        Spacer(Modifier.height(14.dp))
 
         // Scrollable reference body: metadata + tabbed detail + archive actions.
         Column(

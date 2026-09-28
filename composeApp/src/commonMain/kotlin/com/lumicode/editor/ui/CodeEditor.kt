@@ -160,6 +160,7 @@ fun CodeEditor(
     /** 外部改写文档时递增；用于安全回同步，勿与每次按键绑定。 */
     documentEpoch: Int = 0,
     problemLines: Map<Int, LineKind>,
+    pendingReviewLines: Set<Int> = emptySet(),
     onTextChange: (String) -> Unit,
     onCursorChange: (line: Int, column: Int, selectionLength: Int, selStart: Int, selEnd: Int) -> Unit,
     onSave: () -> Unit,
@@ -515,6 +516,13 @@ fun CodeEditor(
                                         size = Size(dot, dot),
                                     )
                                 }
+                                if ((i + 1) in pendingReviewLines) {
+                                    drawRect(
+                                        color = RlColors.Accent,
+                                        topLeft = Offset(0f, top + 2.dp.toPx()),
+                                        size = Size(2.dp.toPx(), (lineHeightPx - 4.dp.toPx()).coerceAtLeast(2f)),
+                                    )
+                                }
                             }
                             drawRect(
                                 color = RlColors.Accent,
@@ -529,12 +537,25 @@ fun CodeEditor(
                             .weight(1f)
                             .fillMaxHeight()
                             .drawBehind {
+                                val padTop = RlDimens.codePaddingTop.toPx()
+                                pendingReviewLines.forEach { line ->
+                                    val idx = line - 1
+                                    if (idx < 0) return@forEach
+                                    val reviewTop = tops.getOrElse(idx) { idx * lineHeightPx }
+                                    if (reviewTop.isNaN()) return@forEach
+                                    val reviewBottom = bottoms.getOrElse(idx) { reviewTop + lineHeightPx }
+                                    drawRect(
+                                        color = RlColors.AccentGlow,
+                                        topLeft = Offset(0f, padTop + reviewTop),
+                                        size = Size(size.width, (reviewBottom - reviewTop)),
+                                    )
+                                }
                                 val top = tops.getOrElse(activeLine - 1) { (activeLine - 1) * lineHeightPx }
                                 if (top.isNaN()) return@drawBehind
                                 val bottom = bottoms.getOrElse(activeLine - 1) { top + lineHeightPx }
                                 drawRect(
                                     color = RlColors.AccentSoft,
-                                    topLeft = Offset(0f, RlDimens.codePaddingTop.toPx() + lineOffset.toPx()),
+                                    topLeft = Offset(0f, padTop + lineOffset.toPx()),
                                     size = Size(size.width, (bottom - top)),
                                 )
                             },

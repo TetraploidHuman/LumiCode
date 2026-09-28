@@ -248,6 +248,8 @@ object RlDimens {
 
     /** 区域之间只留白。 */
     val seam = 22.dp
+    /** 侧栏（工作区 / 参考区）与编辑区之间的水平间距。 */
+    val panelGap = 8.dp
     /** 页面外缘留白：文字不贴边，但平面一直铺到窗口边缘。 */
     val pagePad = 22.dp
 
@@ -255,7 +257,7 @@ object RlDimens {
     val gutterWidth = 64.dp
     val explorerWidth = 236.dp
     val referenceWidth = 320.dp
-    val railWidth = 116.dp
+    val railWidth = 88.dp
     val topBarHeight = 56.dp
     val statusBarHeight = 26.dp
     // 代码行高由 RlSettings.codeLineHeight 动态给出

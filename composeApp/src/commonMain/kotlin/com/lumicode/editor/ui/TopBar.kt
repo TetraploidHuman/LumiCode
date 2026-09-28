@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import com.lumicode.editor.platform.platformLabel
 import com.lumicode.editor.LUMICODE_STAMP
 import com.lumicode.editor.LUMICODE_VERSION
+import com.lumicode.editor.state.CollabPhase
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.state.OverlayMode
 import com.lumicode.editor.ui.components.AccentTick
@@ -221,6 +222,13 @@ fun StatusBar(state: IdeState, clock: String, compact: Boolean = false, modifier
             }
             HGap(10.dp)
             LabelRaw(text = state.statusMessage, style = RlType.label(12.sp, RlColors.Ink))
+            if (!compact && state.collab.phase != CollabPhase.IDLE) {
+                HGap(14.dp)
+                LabelRaw(
+                    text = state.collab.phaseLabel,
+                    style = RlType.label(11.sp, RlColors.Accent),
+                )
+            }
             if (!compact) {
                 HGap(20.dp)
                 LabelRaw(text = platformLabel(), style = RlType.label(12.sp, RlColors.Faint))
@@ -258,7 +266,7 @@ fun StatusBar(state: IdeState, clock: String, compact: Boolean = false, modifier
 
 /** 最右侧遥测栏（对应参考图右缘的竖排数据条）。 */
 @Composable
-fun TelemetryRail(state: IdeState, clock: String, fps: Int, modifier: Modifier = Modifier) {
+fun TelemetryRail(state: IdeState, fps: Int, modifier: Modifier = Modifier) {
     val activeLines = state.activeContent.count { it == '\n' } + 1
 
     @Composable
@@ -276,8 +284,6 @@ fun TelemetryRail(state: IdeState, clock: String, fps: Int, modifier: Modifier =
             .padding(top = 4.dp, end = RlDimens.pagePad),
         horizontalAlignment = Alignment.End,
     ) {
-        LabelRaw(text = clock, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink))
-        Spacer(Modifier.height(10.dp))
         Metric("帧率", fps.toString().padStart(2, '0'))
         Metric("行数", activeLines.toString().padStart(3, '0'))
         Metric("未存", state.dirtyCount.toString().padStart(2, '0'))
