@@ -157,6 +157,8 @@ fun CodeEditor(
     findRangeEnd: Int = -1,
     revealLine: Int?,
     revealSeq: Int = 0,
+    /** 外部改写文档时递增；用于安全回同步，勿与每次按键绑定。 */
+    documentEpoch: Int = 0,
     problemLines: Map<Int, LineKind>,
     onTextChange: (String) -> Unit,
     onCursorChange: (line: Int, column: Int, selectionLength: Int, selStart: Int, selEnd: Int) -> Unit,
@@ -174,6 +176,8 @@ fun CodeEditor(
     val verticalScroll = rememberScrollState()
 
     var value by remember(path) { mutableStateOf(TextFieldValue(text, TextRange(0))) }
+    /** 最近一次由编辑器推给父级的正文；用来识别滞后回声。 */
+    var lastEmittedText by remember(path) { mutableStateOf(text) }
     var ensureCursorVisible by remember(path) { mutableStateOf(false) }
     var foldedStarts by remember(path) { mutableStateOf(emptySet<Int>()) }
     var textLayout by remember(path) { mutableStateOf<TextLayoutResult?>(null) }
@@ -193,11 +197,14 @@ fun CodeEditor(
             editHistory.recordBefore(value, editClock.value.toLong())
         }
         value = next
-        onTextChange(value.text)
-        val selection = value.selection
+        if (next.text != lastEmittedText) {
+            lastEmittedText = next.text
+            onTextChange(next.text)
+        }
+        val selection = next.selection
         onCursorChange(
-            SyntaxHighlighter.lineOf(value.text, selection.start) + 1,
-            SyntaxHighlighter.columnOf(value.text, selection.start) + 1,
+            SyntaxHighlighter.lineOf(next.text, selection.start) + 1,
+            SyntaxHighlighter.columnOf(next.text, selection.start) + 1,
             selection.max - selection.min,
             selection.min,
             selection.max,
@@ -207,12 +214,15 @@ fun CodeEditor(
     fun applyHistory(next: TextFieldValue?) {
         if (next == null) return
         value = next
-        onTextChange(value.text)
+        if (next.text != lastEmittedText) {
+            lastEmittedText = next.text
+            onTextChange(next.text)
+        }
         ensureCursorVisible = true
-        val selection = value.selection
+        val selection = next.selection
         onCursorChange(
-            SyntaxHighlighter.lineOf(value.text, selection.start) + 1,
-            SyntaxHighlighter.columnOf(value.text, selection.start) + 1,
+            SyntaxHighlighter.lineOf(next.text, selection.start) + 1,
+            SyntaxHighlighter.columnOf(next.text, selection.start) + 1,
             selection.max - selection.min,
             selection.min,
             selection.max,
@@ -262,21 +272,27 @@ fun CodeEditor(
     }
 
     LaunchedEffect(path) {
+        lastEmittedText = text
         value = TextFieldValue(text, TextRange(0))
         foldedStarts = emptySet()
         editHistory.clear()
         verticalScroll.scrollTo(0)
     }
 
-    LaunchedEffect(text) {
-        if (text != value.text) {
-            editHistory.recordBefore(value, editClock.value.toLong())
-            editHistory.endBurst()
-            value = value.copy(
-                text = text,
-                selection = TextRange(value.selection.start.coerceAtMost(text.length)),
-            )
+    // 仅在替换等外部写入时回同步；不要监听每次 text 变化 —— 长按连发时父状态会滞后一帧，
+    // 旧 LaunchedEffect(text) 会把更新的本地 value 盖回去，光标乱跳、字母插到错误位置。
+    LaunchedEffect(documentEpoch, path) {
+        if (documentEpoch == 0) return@LaunchedEffect
+        if (text == value.text) {
+            lastEmittedText = text
+            return@LaunchedEffect
         }
+        editHistory.recordBefore(value, editClock.value.toLong())
+        editHistory.endBurst()
+        lastEmittedText = text
+        val caret = value.selection.start.coerceIn(0, text.length)
+        value = value.copy(text = text, selection = TextRange(caret))
+        ensureCursorVisible = true
     }
 
     // 括号结构变了就丢掉失效的折叠。
@@ -529,8 +545,16 @@ fun CodeEditor(
                             onValueChange = { next ->
                                 val edited = autoClose(value, next)
                                 val textChanged = edited.text != value.text
+                                val oldLine = SyntaxHighlighter.lineOf(value.text, value.selection.start)
                                 publishEdit(edited, recordUndo = textChanged)
-                                if (textChanged) ensureCursorVisible = true
+                                // 同行连发不强制滚屏；换行 / 跨行时才跟光标，避免长按一卡一卡。
+                                if (textChanged) {
+                                    val newLine = SyntaxHighlighter.lineOf(
+                                        edited.text,
+                                        edited.selection.start,
+                                    )
+                                    if (newLine != oldLine) ensureCursorVisible = true
+                                }
                             },
                             textStyle = RlType.code,
                             // 自绘加粗光标，隐藏系统细光标。

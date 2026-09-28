@@ -114,6 +114,13 @@ class IdeState(initialFiles: List<CodeFile>) {
     /** 递增令牌，保证同号行也能再次跳转。 */
     var pendingRevealSeq by mutableStateOf(0)
 
+    /**
+     * 非编辑器路径改写当前文档内容时递增（替换 / 外部写入）。
+     * CodeEditor 只在此令牌变化时回同步 [text]，避免长按输入时滞后的父状态盖掉本地值。
+     */
+    var documentEpoch by mutableStateOf(0)
+        private set
+
     private val expanded = mutableStateMapOf<String, Boolean>()
     private var untitledCounter = 0
 
@@ -438,6 +445,10 @@ class IdeState(initialFiles: List<CodeFile>) {
         if (activePath == path && !isDirty(path)) statusMessage = "已修改"
     }
 
+    private fun bumpDocumentEpoch(path: String) {
+        if (path == activePath) documentEpoch++
+    }
+
     /** 替换当前查找命中；成功后停在「下一个」同序号命中上。 */
     fun replaceCurrentMatch(): Boolean {
         val path = activePath ?: return false
@@ -456,6 +467,7 @@ class IdeState(initialFiles: List<CodeFile>) {
         val replacement = replaceQuery
         val next = text.substring(0, match.start) + replacement + text.substring(match.end)
         contents[path] = next
+        bumpDocumentEpoch(path)
         statusMessage = "已替换 1 处"
         val matches = SyntaxHighlighter.countMatches(
             next,
@@ -499,6 +511,7 @@ class IdeState(initialFiles: List<CodeFile>) {
         }
         out.append(text, from, text.length)
         contents[path] = out.toString()
+        bumpDocumentEpoch(path)
         findActiveMatch = 0
         statusMessage = "已替换 ${matches.size} 处"
         appendLog("全部替换 ${path.substringAfterLast('/')} · ${matches.size}")
