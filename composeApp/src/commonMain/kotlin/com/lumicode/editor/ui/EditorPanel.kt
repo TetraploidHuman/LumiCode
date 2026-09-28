@@ -132,6 +132,7 @@ fun EditorPanel(
                     },
                     revealLine = state.pendingRevealLine,
                     revealSeq = state.pendingRevealSeq,
+                    documentEpoch = state.documentEpoch,
                     problemLines = problemLines,
                     onTextChange = { state.updateContent(active, it) },
                     onCursorChange = { line, column, selection, selStart, selEnd ->
