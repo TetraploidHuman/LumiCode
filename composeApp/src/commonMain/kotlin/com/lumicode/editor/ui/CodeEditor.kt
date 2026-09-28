@@ -153,11 +153,13 @@ fun CodeEditor(
     findActiveMatch: Int,
     findCaseSensitive: Boolean = false,
     findRegex: Boolean = false,
+    findRangeStart: Int = 0,
+    findRangeEnd: Int = -1,
     revealLine: Int?,
     revealSeq: Int = 0,
     problemLines: Map<Int, LineKind>,
     onTextChange: (String) -> Unit,
-    onCursorChange: (line: Int, column: Int, selectionLength: Int) -> Unit,
+    onCursorChange: (line: Int, column: Int, selectionLength: Int, selStart: Int, selEnd: Int) -> Unit,
     onSave: () -> Unit,
     onRun: () -> Unit,
     modifier: Modifier = Modifier,
@@ -197,6 +199,8 @@ fun CodeEditor(
             SyntaxHighlighter.lineOf(value.text, selection.start) + 1,
             SyntaxHighlighter.columnOf(value.text, selection.start) + 1,
             selection.max - selection.min,
+            selection.min,
+            selection.max,
         )
     }
 
@@ -210,6 +214,8 @@ fun CodeEditor(
             SyntaxHighlighter.lineOf(value.text, selection.start) + 1,
             SyntaxHighlighter.columnOf(value.text, selection.start) + 1,
             selection.max - selection.min,
+            selection.min,
+            selection.max,
         )
     }
 
@@ -295,7 +301,7 @@ fun CodeEditor(
         verticalScroll.animateScrollTo(((line - 2).coerceAtLeast(0) * lineHeightPx).toInt())
     }
 
-    LaunchedEffect(findQuery, findActiveMatch, findCaseSensitive, findRegex, path) {
+    LaunchedEffect(findQuery, findActiveMatch, findCaseSensitive, findRegex, findRangeStart, findRangeEnd, path) {
         if (findQuery.isEmpty()) return@LaunchedEffect
         val match = SyntaxHighlighter.matchAt(
             value.text,
@@ -303,6 +309,8 @@ fun CodeEditor(
             findActiveMatch,
             findCaseSensitive,
             findRegex,
+            findRangeStart,
+            findRangeEnd,
         ) ?: return@LaunchedEffect
         val line = SyntaxHighlighter.lineOf(value.text, match.start)
         val need = unfoldsForLine(line, allFolds, foldedStarts)
@@ -349,19 +357,29 @@ fun CodeEditor(
                 if (isLineHidden(i, activeFolds)) Float.NaN else (i + 1) * lineHeightPx
             }
         }
-        val textHeight = if (usable) {
-            with(density) { stale!!.height.toDp() }
+        // 内容高度：优先用行 bottoms（真实逻辑行底），避免 fillMaxSize 文本测量
+        // 把「视口高」写回成固定 height()，在 2× DPI 上冲破 Constraints 上限（~262143px）
+        // → Can't represent height of 262146。
+        val maxPackablePx = 262_142
+        val paddingTopPx = with(density) { RlDimens.codePaddingTop.toPx() }
+        val textHeightPx = if (usable) {
+            bottoms.asSequence().filter { !it.isNaN() }.maxOrNull()
+                ?: stale!!.height
         } else {
             val visible = (0 until lineCount).count { !isLineHidden(it, activeFolds) }
-            lineHeight * visible.coerceAtLeast(1)
+            lineHeightPx * visible.coerceAtLeast(1)
         }
-        val contentHeight = RlDimens.codePaddingTop + textHeight + 28.dp
-        val totalHeight = maxOf(maxHeight, contentHeight)
+        val padBottomPx = with(density) { 28.dp.toPx() }
+        val contentHeightPx = (paddingTopPx + textHeightPx + padBottomPx)
+            .coerceAtMost(maxPackablePx.toFloat())
+        val viewportHeightCapPx = with(density) { maxHeight.toPx() }.coerceAtMost(maxPackablePx.toFloat())
+        val totalHeight = with(density) {
+            maxOf(viewportHeightCapPx, contentHeightPx).toDp()
+        }
 
         val activeLine = SyntaxHighlighter.lineOf(value.text, value.selection.start) + 1
         val cursorLineIndex = SyntaxHighlighter.lineOf(value.text, value.selection.start)
         val viewportHeightPx = with(density) { maxHeight.toPx() }
-        val paddingTopPx = with(density) { RlDimens.codePaddingTop.toPx() }
 
         LaunchedEffect(cursorLineIndex, viewportHeightPx, ensureCursorVisible) {
             if (!ensureCursorVisible) return@LaunchedEffect
@@ -591,11 +609,13 @@ fun CodeEditor(
                                     selEnd,
                                     findCaseSensitive,
                                     findRegex,
+                                    findRangeStart,
+                                    findRangeEnd,
                                 )
                                 TransformedText(highlighted, folded.offsetMapping)
                             },
                             modifier = Modifier
-                                .fillMaxSize()
+                                .fillMaxWidth()
                                 .padding(start = RlDimens.codePaddingStart, top = RlDimens.codePaddingTop)
                                 .onFocusChanged { editorFocused = it.isFocused }
                                 .drawWithContent {

@@ -7,3 +7,12 @@ package com.lumicode.editor.platform
 expect fun platformLabel(): String
 
 expect fun platformTag(): String
+
+/**
+ * 轻量本地键值：Android SharedPreferences / JVM Preferences / Wasm localStorage。
+ * 只存设置类字符串，不做工作区序列化。
+ */
+expect object LocalPrefs {
+    fun get(key: String): String?
+    fun set(key: String, value: String)
+}

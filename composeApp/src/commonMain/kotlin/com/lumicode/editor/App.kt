@@ -163,16 +163,19 @@ fun App(state: IdeState) {
 
                     ctrl && event.key == Key.B -> {
                         state.explorerVisible = !state.explorerVisible
+                        state.persistPanelPrefs()
                         true
                     }
 
                     ctrl && event.key == Key.J -> {
                         state.outputVisible = !state.outputVisible
+                        state.persistPanelPrefs()
                         true
                     }
 
                     ctrl && event.key == Key.R -> {
                         state.referenceVisible = !state.referenceVisible
+                        state.persistPanelPrefs()
                         true
                     }
 
@@ -187,14 +190,17 @@ fun App(state: IdeState) {
                     }
 
                     ctrl && event.key == Key.F -> {
-                        state.findVisible = !state.findVisible
-                        state.findActiveMatch = 0
+                        state.openFind(replace = false)
                         true
                     }
 
                     ctrl && event.key == Key.H -> {
-                        state.findVisible = true
-                        state.findActiveMatch = 0
+                        state.openFind(replace = true)
+                        true
+                    }
+
+                    ctrl && event.key == Key.Slash -> {
+                        state.toggleOverlay(OverlayMode.SHORTCUTS)
                         true
                     }
 

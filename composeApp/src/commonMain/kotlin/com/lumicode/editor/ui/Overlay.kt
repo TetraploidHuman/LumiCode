@@ -129,6 +129,7 @@ fun OverlayHost(state: IdeState, commands: List<IdeCommand>, compact: Boolean = 
                     PaletteSheet(state, commands, compact, displayMode = lastMode)
                 OverlayMode.GOTO_LINE -> GotoLineSheet(state, compact)
                 OverlayMode.SETTINGS -> SettingsOverlay(state, compact)
+                OverlayMode.SHORTCUTS -> ShortcutsOverlay(state, commands, compact)
                 OverlayMode.OVERVIEW -> OverviewOverlay(state, compact)
                 OverlayMode.NONE -> Unit
             }
@@ -578,7 +579,7 @@ private fun GotoLineSheet(state: IdeState, compact: Boolean) {
 private fun SettingsOverlay(state: IdeState, compact: Boolean) {
     SheetScaffold(
         title = "设置",
-        subtitle = "SETTINGS · 仅保存在本次会话",
+        subtitle = "SETTINGS · 保存在本机",
         onClose = { state.overlay = OverlayMode.NONE },
         compact = compact,
     ) {
@@ -586,30 +587,54 @@ private fun SettingsOverlay(state: IdeState, compact: Boolean) {
         StepperRow(
             label = "代码字号",
             hint = "当前 ${RlSettings.codeFontSize.toInt()} sp（行高自动跟随）",
-            onMinus = { RlSettings.codeFontSize = (RlSettings.codeFontSize - 1f).coerceAtLeast(12f) },
-            onPlus = { RlSettings.codeFontSize = (RlSettings.codeFontSize + 1f).coerceAtLeast(12f).coerceAtMost(22f) },
+            onMinus = {
+                RlSettings.codeFontSize = (RlSettings.codeFontSize - 1f).coerceAtLeast(12f)
+                RlSettings.persist()
+            },
+            onPlus = {
+                RlSettings.codeFontSize =
+                    (RlSettings.codeFontSize + 1f).coerceAtLeast(12f).coerceAtMost(22f)
+                RlSettings.persist()
+            },
         )
         ChoiceRow(
             label = "制表符宽度",
             hint = "按 Tab 时插入的空格数",
             options = listOf("2" to 2, "4" to 4, "8" to 8),
             selected = RlSettings.tabWidth,
-            onSelect = { RlSettings.tabWidth = it },
+            onSelect = {
+                RlSettings.tabWidth = it
+                RlSettings.persist()
+            },
         )
         Spacer(Modifier.height(6.dp))
         ToggleRow("显示行号", "编辑器左侧的行号栏", RlSettings.showLineNumbers) {
             RlSettings.showLineNumbers = it
+            RlSettings.persist()
         }
         ToggleRow("显示遥测栏", "最右侧的帧率/行数等信息条", RlSettings.showRail) {
             RlSettings.showRail = it
+            RlSettings.persist()
         }
 
         SettingSection("面板")
-        ToggleRow("资源管理器", "左侧文件树", state.explorerVisible) { state.explorerVisible = it }
-        ToggleRow("参考区", "右侧档案信息", state.referenceVisible) { state.referenceVisible = it }
-        ToggleRow("分析控制台", "底部终端 / 问题 / 日志", state.outputVisible) { state.outputVisible = it }
+        ToggleRow("资源管理器", "左侧文件树", state.explorerVisible) {
+            state.explorerVisible = it
+            state.persistPanelPrefs()
+        }
+        ToggleRow("参考区", "右侧档案信息", state.referenceVisible) {
+            state.referenceVisible = it
+            state.persistPanelPrefs()
+        }
+        ToggleRow("分析控制台", "底部终端 / 问题 / 日志", state.outputVisible) {
+            state.outputVisible = it
+            state.persistPanelPrefs()
+        }
 
         SettingSection("操作")
+        ActionRow("快捷键一览", "浏览全部键盘绑定（Ctrl /）", "KEYBOARD") {
+            state.openOverlay(OverlayMode.SHORTCUTS)
+        }
         ActionRow("重置工作区", "丢弃所有修改，回到初始档案", state.statusMessage) {
             state.softReset()
             state.overlay = OverlayMode.NONE
@@ -624,6 +649,55 @@ private fun SettingsOverlay(state: IdeState, compact: Boolean) {
         InfoRow("运行平台", platformLabel())
         InfoRow("代码字体", "JetBrains Mono + Noto Sans CJK（合并子集）")
         InfoRow("界面字体", "Noto Sans CJK SC")
+        Spacer(Modifier.height(8.dp))
+    }
+}
+
+@Composable
+private fun ShortcutsOverlay(state: IdeState, commands: List<IdeCommand>, compact: Boolean) {
+    val grouped = remember(commands) {
+        commands
+            .filter { it.shortcut != "-" }
+            .groupBy { it.group }
+            .toList()
+            .sortedBy { it.first }
+    }
+    SheetScaffold(
+        title = "快捷键",
+        subtitle = "KEYBOARD · Ctrl / · ESC 关闭",
+        onClose = { state.overlay = OverlayMode.NONE },
+        compact = compact,
+    ) {
+        grouped.forEach { (group, items) ->
+            SettingSection(group)
+            items.forEach { cmd ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        BasicText(
+                            cmd.title,
+                            style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink),
+                        )
+                        Spacer(Modifier.height(3.dp))
+                        LabelRaw(
+                            text = cmd.chinese,
+                            style = RlType.label(11.sp, RlColors.Faint),
+                        )
+                    }
+                    HGap(16.dp)
+                    Chip(text = cmd.shortcut)
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        LabelRaw(
+            text = "无快捷键的命令仍可在 Ctrl K 命令面板中执行",
+            style = RlType.label(11.sp, RlColors.Faint),
+        )
         Spacer(Modifier.height(8.dp))
     }
 }
