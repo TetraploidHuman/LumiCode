@@ -5,6 +5,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.window.ComposeViewport
 import com.lumicode.editor.model.SampleWorkspace
 import com.lumicode.editor.state.IdeState
+import com.lumicode.editor.ui.theme.RlSettings
 import kotlinx.browser.document
 
 /**
@@ -13,9 +14,12 @@ import kotlinx.browser.document
  */
 @OptIn(ExperimentalComposeUiApi::class)
 fun main() {
+    RlSettings.load()
     val container = document.getElementById("composeTarget") ?: document.body!!
     ComposeViewport(container) {
-        val state = remember { IdeState(SampleWorkspace.files) }
+        val state = remember {
+            IdeState(SampleWorkspace.files).also { it.loadPanelPrefs() }
+        }
         App(state)
     }
 }

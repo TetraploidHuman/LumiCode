@@ -113,6 +113,7 @@ object SyntaxHighlighter {
 
     /**
      * 文档内查找：字面量或正则；[caseSensitive] / [regex] 控制匹配方式。
+     * [rangeStart] / [rangeEnd] 限制在半开区间内（默认全文）。
      * 非法正则返回空列表（不抛）。
      */
     fun findMatches(
@@ -120,8 +121,14 @@ object SyntaxHighlighter {
         query: String,
         caseSensitive: Boolean = false,
         regex: Boolean = false,
+        rangeStart: Int = 0,
+        rangeEnd: Int = -1,
     ): List<FindMatch> {
         if (query.isEmpty()) return emptyList()
+        val endBound = if (rangeEnd < 0) text.length else rangeEnd.coerceIn(0, text.length)
+        val startBound = rangeStart.coerceIn(0, endBound)
+        if (startBound >= endBound) return emptyList()
+        val slice = text.substring(startBound, endBound)
         if (regex) {
             val options = buildSet {
                 if (!caseSensitive) add(RegexOption.IGNORE_CASE)
@@ -131,16 +138,16 @@ object SyntaxHighlighter {
             } catch (_: Throwable) {
                 return emptyList()
             }
-            return pattern.findAll(text)
-                .map { FindMatch(it.range.first, it.range.last + 1) }
+            return pattern.findAll(slice)
+                .map { FindMatch(it.range.first + startBound, it.range.last + 1 + startBound) }
                 .filter { it.length > 0 }
                 .toList()
         }
         val out = mutableListOf<FindMatch>()
-        var index = text.indexOf(query, 0, ignoreCase = !caseSensitive)
+        var index = slice.indexOf(query, 0, ignoreCase = !caseSensitive)
         while (index >= 0) {
-            out += FindMatch(index, index + query.length)
-            index = text.indexOf(query, index + query.length, ignoreCase = !caseSensitive)
+            out += FindMatch(startBound + index, startBound + index + query.length)
+            index = slice.indexOf(query, index + query.length, ignoreCase = !caseSensitive)
         }
         return out
     }
@@ -156,12 +163,14 @@ object SyntaxHighlighter {
         activeMatch: Int,
         caseSensitive: Boolean = false,
         regex: Boolean = false,
+        rangeStart: Int = 0,
+        rangeEnd: Int = -1,
     ): AnnotatedString {
         val base = highlight(text, language)
         if (query.isEmpty()) return base
         return buildAnnotatedString {
             append(base)
-            findMatches(text, query, caseSensitive, regex).forEachIndexed { ordinal, match ->
+            findMatches(text, query, caseSensitive, regex, rangeStart, rangeEnd).forEachIndexed { ordinal, match ->
                 val isActive = ordinal == activeMatch
                 addStyle(
                     SpanStyle(
@@ -181,7 +190,9 @@ object SyntaxHighlighter {
         query: String,
         caseSensitive: Boolean = false,
         regex: Boolean = false,
-    ): Int = findMatches(text, query, caseSensitive, regex).size
+        rangeStart: Int = 0,
+        rangeEnd: Int = -1,
+    ): Int = findMatches(text, query, caseSensitive, regex, rangeStart, rangeEnd).size
 
     /**
      * 语法高亮 + 查找命中 + 当前词出现 + 配对括号。
@@ -196,8 +207,19 @@ object SyntaxHighlighter {
         selEnd: Int,
         caseSensitive: Boolean = false,
         regex: Boolean = false,
+        rangeStart: Int = 0,
+        rangeEnd: Int = -1,
     ): AnnotatedString {
-        val base = highlightWithMatches(text, language, query, activeMatch, caseSensitive, regex)
+        val base = highlightWithMatches(
+            text,
+            language,
+            query,
+            activeMatch,
+            caseSensitive,
+            regex,
+            rangeStart,
+            rangeEnd,
+        )
         return buildAnnotatedString {
             append(base)
 
@@ -322,7 +344,10 @@ object SyntaxHighlighter {
         ordinal: Int,
         caseSensitive: Boolean = false,
         regex: Boolean = false,
-    ): Int = findMatches(text, query, caseSensitive, regex).getOrNull(ordinal)?.start ?: -1
+        rangeStart: Int = 0,
+        rangeEnd: Int = -1,
+    ): Int = findMatches(text, query, caseSensitive, regex, rangeStart, rangeEnd)
+        .getOrNull(ordinal)?.start ?: -1
 
     fun matchAt(
         text: String,
@@ -330,7 +355,10 @@ object SyntaxHighlighter {
         ordinal: Int,
         caseSensitive: Boolean = false,
         regex: Boolean = false,
-    ): FindMatch? = findMatches(text, query, caseSensitive, regex).getOrNull(ordinal)
+        rangeStart: Int = 0,
+        rangeEnd: Int = -1,
+    ): FindMatch? = findMatches(text, query, caseSensitive, regex, rangeStart, rangeEnd)
+        .getOrNull(ordinal)
 
     fun lineOf(text: String, offset: Int): Int = text.take(offset.coerceIn(0, text.length)).count { it == '\n' }
 

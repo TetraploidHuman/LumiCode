@@ -52,8 +52,10 @@ SKIA_MINGW_PREBUILT=/tmp/composekn-skia-mingw/skia-mingw-$(cat vendor/skiko/skia
 ## 状态
 
 - ✅ Linux / Windows Native 可链
-- ✅ **自定义字体**（ComposeKN v0.5.53）：`compose-kn-resources` + Gradle 插件生成 `Res.font.*`，
+- ✅ **自定义字体**（ComposeKN v0.5.53+）：`compose-kn-resources` + Gradle 插件生成 `Res.font.*`，
   与 Desktop 同一批 Noto / JetBrains Mono；`InstallArchiveFonts` KN actual 已接
+- ✅ **v0.5.55 host**：`samples/lumicode` 用 `com.composekn.host`；`main` 不再手写 `init` / `register`
+- ✅ **LocalPrefs（KN）**：设置持久化文件键值；与 JVM/Wasm/Android 共用 expect API
 - 运行：Linux 需 Wayland；Windows 可拷实机或 Wine
 
 ## 与 JVM 桌面的差异（当前）
@@ -61,10 +63,15 @@ SKIA_MINGW_PREBUILT=/tmp/composekn-skia-mingw/skia-mingw-$(cat vendor/skiko/skia
 | | JVM Desktop（main） | ComposeKN（本分支实验） |
 |---|---|---|
 | 运行时 | 捆绑 JRE | 单一 `.kexe` / `.exe` |
-| 窗口 | AWT | Wayland / Win32 |
+| 窗口 | AWT；`minimumSize` 仅 JVM | Wayland / Win32；无 min-size |
+| 位置 | PlatformDefault（不再 Absolute） | 同左（Linux Absolute 本为 no-op） |
 | 字体 | 官方 `compose.resources` → `Font(Res.font…)` | `com.composekn.resources.Font(Res.font…)`（同文件） |
 | 平台标签 | `· JVM` | `· KN` |
+| 入口 | `desktopMain/.../Main.kt` | `samples/lumicode/.../main.kt`（env + Window；host 包 register） |
 
 ## LumiCode 侧改动
 
 - `InstallArchiveFonts` 为 expect/actual：JVM/Wasm/Android 用官方 API，KN 用 compose-kn-resources，字体文件共用
+- `DesktopBootstrap.kt`（commonMain）：尺寸 / 标题 / `LumiCodeDesktopRoot` 共享；JVM 另留 AWT min-size
+- `LocalPrefs` expect/actual：Android / JVM / Wasm 在 LumiCodeNext；**Linux / Windows KN** actual 在
+  `ComposeKN/samples/lumicode`（`~/.config/lumicode/settings` / `%APPDATA%/lumicode/settings`）

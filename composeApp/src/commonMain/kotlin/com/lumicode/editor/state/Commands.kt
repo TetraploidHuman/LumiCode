@@ -28,12 +28,10 @@ fun defaultCommands(
         state.toggleOverlay(OverlayMode.QUICK_OPEN)
     },
     IdeCommand("find", "文档内查找", "FIND IN DOCUMENT", "Ctrl F", "02 / 查找") {
-        state.findVisible = !state.findVisible
-        state.findActiveMatch = 0
+        state.openFind(replace = false)
     },
     IdeCommand("replace", "查找并替换", "FIND AND REPLACE", "Ctrl H", "02 / 查找") {
-        state.findVisible = true
-        state.findActiveMatch = 0
+        state.openFind(replace = true)
     },
     IdeCommand("find-workspace", "工作区搜索", "SEARCH WORKSPACE", "Ctrl ⇧ F", "02 / 查找") {
         state.toggleOverlay(OverlayMode.WORKSPACE_SEARCH)
@@ -43,12 +41,15 @@ fun defaultCommands(
     },
     IdeCommand("explorer", "显示/隐藏资源管理器", "TOGGLE EXPLORER", "Ctrl B", "03 / 版面") {
         state.explorerVisible = !state.explorerVisible
+        state.persistPanelPrefs()
     },
     IdeCommand("reference", "显示/隐藏参考区", "TOGGLE REFERENCE", "Ctrl R", "03 / 版面") {
         state.referenceVisible = !state.referenceVisible
+        state.persistPanelPrefs()
     },
     IdeCommand("console", "显示/隐藏分析控制台", "TOGGLE CONSOLE", "Ctrl J", "03 / 版面") {
         state.outputVisible = !state.outputVisible
+        state.persistPanelPrefs()
     },
     IdeCommand("run", "运行分析", "RUN ANALYSIS", "F5", "04 / 运行") { onRun() },
     IdeCommand("export", "导出档案包", "EXPORT BUNDLE", "Ctrl E", "04 / 运行") {
@@ -70,6 +71,9 @@ fun defaultCommands(
     },
     IdeCommand("settings", "打开设置", "SETTINGS", "-", "06 / 系统") {
         state.openOverlay(OverlayMode.SETTINGS)
+    },
+    IdeCommand("shortcuts", "快捷键一览", "KEYBOARD MAP", "Ctrl /", "06 / 系统") {
+        state.openOverlay(OverlayMode.SHORTCUTS)
     },
     IdeCommand("diagnostics", "重新运行诊断", "DIAGNOSTICS", "-", "06 / 系统") {
         state.rescanProblems()

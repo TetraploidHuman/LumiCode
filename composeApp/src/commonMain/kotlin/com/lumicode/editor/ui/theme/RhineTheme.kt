@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.lumicode.editor.platform.LocalPrefs
 
 /**
  * 无界 · Minimalist Futurism palette.
@@ -71,9 +72,14 @@ object RlColors {
 }
 
 /**
- * 用户可在设置页调整的项。用 Compose state 保存，改完立刻全局生效。
+ * 用户可在设置页调整的项。Compose state 立刻生效，并通过 [LocalPrefs] 跨会话保留。
  */
 object RlSettings {
+    private const val KEY_FONT = "codeFontSize"
+    private const val KEY_TAB = "tabWidth"
+    private const val KEY_LINE_NUMBERS = "showLineNumbers"
+    private const val KEY_RAIL = "showRail"
+
     /** 代码字号（sp）。行距由字体自身行高决定（见 RlType.code）。 */
     var codeFontSize by mutableStateOf(14f)
     var tabWidth by mutableStateOf(4)
@@ -84,6 +90,24 @@ object RlSettings {
     val codeLineHeight: Dp get() = (codeFontSize + 9f).dp
 
     fun lineHeightSp(): Float = codeFontSize + 9f
+
+    fun load() {
+        LocalPrefs.get(KEY_FONT)?.toFloatOrNull()?.let {
+            codeFontSize = it.coerceIn(12f, 22f)
+        }
+        LocalPrefs.get(KEY_TAB)?.toIntOrNull()?.let {
+            if (it == 2 || it == 4 || it == 8) tabWidth = it
+        }
+        LocalPrefs.get(KEY_LINE_NUMBERS)?.let { showLineNumbers = it != "0" && it != "false" }
+        LocalPrefs.get(KEY_RAIL)?.let { showRail = it != "0" && it != "false" }
+    }
+
+    fun persist() {
+        LocalPrefs.set(KEY_FONT, codeFontSize.toInt().toString())
+        LocalPrefs.set(KEY_TAB, tabWidth.toString())
+        LocalPrefs.set(KEY_LINE_NUMBERS, if (showLineNumbers) "1" else "0")
+        LocalPrefs.set(KEY_RAIL, if (showRail) "1" else "0")
+    }
 }
 
 /**

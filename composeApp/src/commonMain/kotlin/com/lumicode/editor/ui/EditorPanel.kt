@@ -124,14 +124,22 @@ fun EditorPanel(
                     findActiveMatch = state.findActiveMatch,
                     findCaseSensitive = state.findCaseSensitive,
                     findRegex = state.findRegex,
+                    findRangeStart = if (state.findVisible) state.findRangeStart() else 0,
+                    findRangeEnd = if (state.findVisible && state.findInSelection) {
+                        state.findRangeEnd()
+                    } else {
+                        -1
+                    },
                     revealLine = state.pendingRevealLine,
                     revealSeq = state.pendingRevealSeq,
                     problemLines = problemLines,
                     onTextChange = { state.updateContent(active, it) },
-                    onCursorChange = { line, column, selection ->
+                    onCursorChange = { line, column, selection, selStart, selEnd ->
                         state.cursorLine = line
                         state.cursorColumn = column
                         state.selectionLength = selection
+                        state.selectionStart = selStart
+                        state.selectionEnd = selEnd
                     },
                     onSave = { state.save(active) },
                     onRun = onRun,
@@ -296,11 +304,15 @@ private fun Breadcrumb(state: IdeState) {
 @Composable
 private fun FindBar(state: IdeState, compact: Boolean) {
     val focus = remember { FocusRequester() }
+    val rangeStart = state.findRangeStart()
+    val rangeEnd = state.findRangeEnd()
     val matches = SyntaxHighlighter.countMatches(
         state.activeContent,
         state.findQuery,
         state.findCaseSensitive,
         state.findRegex,
+        rangeStart,
+        rangeEnd,
     )
     LaunchedEffect(Unit) { focus.requestFocus() }
 
@@ -374,13 +386,20 @@ private fun FindBar(state: IdeState, compact: Boolean) {
                         state.findActiveMatch = 0
                     },
                 )
+                HGap(6.dp)
+                FindOptionChip(
+                    label = if (compact) "⬚" else "选区",
+                    active = state.findInSelection,
+                    onClick = { state.toggleFindInSelection() },
+                )
                 HGap(12.dp)
+                val matchLabel = when {
+                    matches == 0 && state.findQuery.isEmpty() -> "— / —"
+                    matches == 0 -> "0 / 0"
+                    else -> "${state.findActiveMatch + 1} / $matches"
+                }
                 LabelRaw(
-                    text = if (matches == 0) {
-                        "000 / 000"
-                    } else {
-                        "${(state.findActiveMatch + 1).toString().padStart(3, '0')} / ${matches.toString().padStart(3, '0')}"
-                    },
+                    text = if (state.findInSelection) "选区 $matchLabel" else matchLabel,
                     style = RlType.mono.copy(
                         fontSize = 11.5.sp,
                         color = if (matches == 0) RlColors.Faint else RlColors.AccentDeep,
@@ -410,58 +429,60 @@ private fun FindBar(state: IdeState, compact: Boolean) {
                 )
             }
         }
-        Box(Modifier.fillMaxWidth().height(46.dp)) {
-            Row(
-                Modifier.fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!compact) {
-                    Label("替换", style = RlType.label(11.sp, RlColors.Muted))
-                    HGap(14.dp)
-                }
-                BasicTextField(
-                    value = TextFieldValue(state.replaceQuery, TextRange(state.replaceQuery.length)),
-                    onValueChange = { state.replaceQuery = it.text },
-                    singleLine = true,
-                    textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink),
-                    cursorBrush = SolidColor(RlColors.Accent),
-                    modifier = Modifier
-                        .then(if (compact) Modifier.weight(1f) else Modifier.width(200.dp))
-                        .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            when (event.key) {
-                                Key.Enter -> {
-                                    state.replaceCurrentMatch()
-                                    true
+        if (state.findReplaceVisible) {
+            Box(Modifier.fillMaxWidth().height(46.dp)) {
+                Row(
+                    Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (!compact) {
+                        Label("替换", style = RlType.label(11.sp, RlColors.Muted))
+                        HGap(14.dp)
+                    }
+                    BasicTextField(
+                        value = TextFieldValue(state.replaceQuery, TextRange(state.replaceQuery.length)),
+                        onValueChange = { state.replaceQuery = it.text },
+                        singleLine = true,
+                        textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Ink),
+                        cursorBrush = SolidColor(RlColors.Accent),
+                        modifier = Modifier
+                            .then(if (compact) Modifier.weight(1f) else Modifier.width(200.dp))
+                            .onPreviewKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                when (event.key) {
+                                    Key.Enter -> {
+                                        state.replaceCurrentMatch()
+                                        true
+                                    }
+                                    Key.Escape -> {
+                                        state.findVisible = false
+                                        true
+                                    }
+                                    else -> false
                                 }
-                                Key.Escape -> {
-                                    state.findVisible = false
-                                    true
-                                }
-                                else -> false
+                            },
+                        decorationBox = { inner ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.weight(1f)) { inner() }
                             }
                         },
-                    decorationBox = { inner ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.weight(1f)) { inner() }
-                        }
-                    },
-                )
-                if (!compact) Spacer(Modifier.weight(1f))
-                HGap(12.dp)
-                GhostButton(
-                    text = if (compact) "" else "替换",
-                    glyph = "←",
-                    glyphLeading = false,
-                    onClick = { state.replaceCurrentMatch() },
-                )
-                HGap(if (compact) 8.dp else 12.dp)
-                GhostButton(
-                    text = if (compact) "" else "全部",
-                    glyph = "≡",
-                    glyphLeading = false,
-                    onClick = { state.replaceAllMatches() },
-                )
+                    )
+                    if (!compact) Spacer(Modifier.weight(1f))
+                    HGap(12.dp)
+                    GhostButton(
+                        text = if (compact) "" else "替换",
+                        glyph = "←",
+                        glyphLeading = false,
+                        onClick = { state.replaceCurrentMatch() },
+                    )
+                    HGap(if (compact) 8.dp else 12.dp)
+                    GhostButton(
+                        text = if (compact) "" else "全部",
+                        glyph = "≡",
+                        glyphLeading = false,
+                        onClick = { state.replaceAllMatches() },
+                    )
+                }
             }
         }
     }

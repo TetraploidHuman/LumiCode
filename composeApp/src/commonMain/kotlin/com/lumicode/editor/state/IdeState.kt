@@ -7,11 +7,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.lumicode.editor.model.CodeFile
 import com.lumicode.editor.model.buildTree
+import com.lumicode.editor.platform.LocalPrefs
 import com.lumicode.editor.platform.clockLabel
 import com.lumicode.editor.platform.platformLabel
 import com.lumicode.editor.syntax.SyntaxHighlighter
 
-enum class OverlayMode { NONE, COMMAND_INDEX, QUICK_OPEN, SETTINGS, OVERVIEW, GOTO_LINE, WORKSPACE_SEARCH }
+enum class OverlayMode {
+    NONE,
+    COMMAND_INDEX,
+    QUICK_OPEN,
+    SETTINGS,
+    OVERVIEW,
+    GOTO_LINE,
+    WORKSPACE_SEARCH,
+    SHORTCUTS,
+}
 
 enum class LineKind { INFO, OK, WARN, ERROR, MUTED }
 
@@ -72,11 +82,17 @@ class IdeState(initialFiles: List<CodeFile>) {
     var overlayQuery by mutableStateOf("")
 
     var findVisible by mutableStateOf(false)
+    /** Ctrl+H 时展开替换行；Ctrl+F 仅查找。 */
+    var findReplaceVisible by mutableStateOf(false)
     var findQuery by mutableStateOf("")
     var replaceQuery by mutableStateOf("")
     var findActiveMatch by mutableStateOf(0)
     var findCaseSensitive by mutableStateOf(false)
     var findRegex by mutableStateOf(false)
+    /** 仅在冻结的选区内查找 / 替换。 */
+    var findInSelection by mutableStateOf(false)
+    var findScopeStart by mutableStateOf(0)
+    var findScopeEnd by mutableStateOf(0)
     /** Markdown 默认预览；源码模式可编辑。 */
     var markdownPreview by mutableStateOf(true)
 
@@ -87,6 +103,8 @@ class IdeState(initialFiles: List<CodeFile>) {
     var cursorLine by mutableStateOf(1)
     var cursorColumn by mutableStateOf(1)
     var selectionLength by mutableStateOf(0)
+    var selectionStart by mutableStateOf(0)
+    var selectionEnd by mutableStateOf(0)
 
     var savedCount by mutableStateOf(0)
     var runToken by mutableStateOf(0)
@@ -426,13 +444,27 @@ class IdeState(initialFiles: List<CodeFile>) {
         val query = findQuery
         if (query.isEmpty()) return false
         val text = contentOf(path)
-        val match = SyntaxHighlighter.matchAt(text, query, findActiveMatch, findCaseSensitive, findRegex)
-            ?: return false
+        val match = SyntaxHighlighter.matchAt(
+            text,
+            query,
+            findActiveMatch,
+            findCaseSensitive,
+            findRegex,
+            findRangeStart(),
+            findRangeEnd(),
+        ) ?: return false
         val replacement = replaceQuery
         val next = text.substring(0, match.start) + replacement + text.substring(match.end)
         contents[path] = next
         statusMessage = "已替换 1 处"
-        val matches = SyntaxHighlighter.countMatches(next, query, findCaseSensitive, findRegex)
+        val matches = SyntaxHighlighter.countMatches(
+            next,
+            query,
+            findCaseSensitive,
+            findRegex,
+            findRangeStart(),
+            findRangeEnd(next.length),
+        )
         findActiveMatch = when {
             matches <= 0 -> 0
             findActiveMatch >= matches -> 0
@@ -448,7 +480,14 @@ class IdeState(initialFiles: List<CodeFile>) {
         val query = findQuery
         if (query.isEmpty()) return 0
         val text = contentOf(path)
-        val matches = SyntaxHighlighter.findMatches(text, query, findCaseSensitive, findRegex)
+        val matches = SyntaxHighlighter.findMatches(
+            text,
+            query,
+            findCaseSensitive,
+            findRegex,
+            findRangeStart(),
+            findRangeEnd(),
+        )
         if (matches.isEmpty()) return 0
         val replacement = replaceQuery
         val out = StringBuilder()
@@ -464,6 +503,64 @@ class IdeState(initialFiles: List<CodeFile>) {
         statusMessage = "已替换 ${matches.size} 处"
         appendLog("全部替换 ${path.substringAfterLast('/')} · ${matches.size}")
         return matches.size
+    }
+
+    /** Ctrl+F / Ctrl+H：打开查找；有单行选区时预填查询。 */
+    fun openFind(replace: Boolean) {
+        if (findVisible && findReplaceVisible == replace) {
+            findVisible = false
+            return
+        }
+        findVisible = true
+        findReplaceVisible = replace
+        findActiveMatch = 0
+        seedFindQueryFromSelection()
+    }
+
+    /** 开关「仅选区」；开启时冻结当前选区范围。 */
+    fun toggleFindInSelection() {
+        if (findInSelection) {
+            findInSelection = false
+            findActiveMatch = 0
+            return
+        }
+        val a = minOf(selectionStart, selectionEnd)
+        val b = maxOf(selectionStart, selectionEnd)
+        if (b <= a) {
+            statusMessage = "需要先选中一段文本"
+            return
+        }
+        findScopeStart = a
+        findScopeEnd = b
+        findInSelection = true
+        findActiveMatch = 0
+    }
+
+    fun findRangeStart(): Int = if (findInSelection) findScopeStart else 0
+
+    fun findRangeEnd(textLength: Int = activeContent.length): Int =
+        if (findInSelection) findScopeEnd.coerceAtMost(textLength) else textLength
+
+    private fun seedFindQueryFromSelection() {
+        val text = activeContent
+        val a = minOf(selectionStart, selectionEnd).coerceIn(0, text.length)
+        val b = maxOf(selectionStart, selectionEnd).coerceIn(0, text.length)
+        if (b <= a) return
+        val selected = text.substring(a, b)
+        if ('\n' in selected || selected.length > 200) return
+        findQuery = selected
+    }
+
+    fun loadPanelPrefs() {
+        LocalPrefs.get(KEY_EXPLORER)?.let { explorerVisible = it != "0" && it != "false" }
+        LocalPrefs.get(KEY_REFERENCE)?.let { referenceVisible = it != "0" && it != "false" }
+        LocalPrefs.get(KEY_OUTPUT)?.let { outputVisible = it != "0" && it != "false" }
+    }
+
+    fun persistPanelPrefs() {
+        LocalPrefs.set(KEY_EXPLORER, if (explorerVisible) "1" else "0")
+        LocalPrefs.set(KEY_REFERENCE, if (referenceVisible) "1" else "0")
+        LocalPrefs.set(KEY_OUTPUT, if (outputVisible) "1" else "0")
     }
 
     /** 跨文件搜索；最多 [limit] 条。 */
@@ -601,5 +698,8 @@ class IdeState(initialFiles: List<CodeFile>) {
 
     private companion object {
         val TODO_REGEX = Regex("\\b(TODO|FIXME|XXX|HACK)\\b")
+        const val KEY_EXPLORER = "panelExplorer"
+        const val KEY_REFERENCE = "panelReference"
+        const val KEY_OUTPUT = "panelOutput"
     }
 }
