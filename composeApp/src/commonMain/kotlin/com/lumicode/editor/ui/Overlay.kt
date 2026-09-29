@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -61,6 +62,7 @@ import com.lumicode.editor.ui.components.Chip
 import com.lumicode.editor.ui.components.HGap
 import com.lumicode.editor.ui.components.Label
 import com.lumicode.editor.ui.components.LabelRaw
+import com.lumicode.editor.ui.components.clickableFlat
 import com.lumicode.editor.ui.components.wash
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlMotion
@@ -131,27 +133,42 @@ fun OverlayHost(state: IdeState, commands: List<IdeCommand>, compact: Boolean = 
                 OverlayMode.SETTINGS -> SettingsOverlay(state, compact)
                 OverlayMode.SHORTCUTS -> ShortcutsOverlay(state, commands, compact)
                 OverlayMode.OVERVIEW -> OverviewOverlay(state, compact)
+                OverlayMode.WORKSPACE_OPEN -> WorkspaceOpenOverlay(state, compact)
                 OverlayMode.NONE -> Unit
             }
         }
     }
 }
 
-/** 浮层通用外壳：标题 + ESC + 细线 + 内容。 */
+/** 浮层通用外壳：标题 + 关闭 + 可滚动内容。窄屏几乎全屏，保证内容可滚到底。 */
 @Composable
-private fun SheetScaffold(
+internal fun SheetScaffold(
     title: String,
     subtitle: String,
     onClose: () -> Unit,
     compact: Boolean,
+    scrollContent: Boolean = true,
     content: @Composable () -> Unit,
 ) {
+    val padH = if (compact) 8.dp else 12.dp
     Column(
         Modifier
-            .padding(top = if (compact) 24.dp else 84.dp, start = 12.dp, end = 12.dp)
-            .width(if (compact) 0.dp else 700.dp)
-            .then(if (compact) Modifier.fillMaxWidth() else Modifier)
-            .heightIn(max = 640.dp)
+            .padding(
+                top = if (compact) 12.dp else 84.dp,
+                start = padH,
+                end = padH,
+                bottom = if (compact) 12.dp else 0.dp,
+            )
+            .then(
+                if (compact) {
+                    Modifier.fillMaxWidth().fillMaxHeight()
+                } else {
+                    // 必须有确定高度：仅 heightIn(max) 时 Column+weight+verticalScroll
+                    // 会拿到 Infinity 约束并直接崩溃（Wasm 白屏）。
+                    Modifier.width(700.dp).height(560.dp)
+                },
+            )
+            .wash(RlColors.Panel)
             .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) { }
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
@@ -162,6 +179,43 @@ private fun SheetScaffold(
                 }
             },
     ) {
+        if (compact) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    AccentTick(length = 18.dp)
+                    HGap(10.dp)
+                    BasicText(
+                        title,
+                        style = RlType.sectionTitle.copy(fontSize = 18.sp),
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    HGap(8.dp)
+                    Box(
+                        Modifier
+                            .wash(RlColors.FieldDeep)
+                            .clickableFlat(onClick = onClose)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        LabelRaw(text = "关闭", style = RlType.label(12.sp, RlColors.InkSoft))
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                LabelRaw(
+                    text = subtitle,
+                    style = RlType.label(11.sp, RlColors.Faint),
+                    maxLines = 2,
+                )
+            }
+        } else {
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -188,15 +242,19 @@ private fun SheetScaffold(
                     )
                 }
             }
-            Column(
-                Modifier
-                    .weight(1f, fill = false)
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 16.dp),
-            ) {
-                content()
-            }
+        }
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .then(if (scrollContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
+                .padding(
+                    horizontal = if (compact) 14.dp else 20.dp,
+                    vertical = if (compact) 8.dp else 16.dp,
+                ),
+        ) {
+            content()
+        }
     }
 }
 
@@ -579,7 +637,7 @@ private fun GotoLineSheet(state: IdeState, compact: Boolean) {
 private fun SettingsOverlay(state: IdeState, compact: Boolean) {
     SheetScaffold(
         title = "设置",
-        subtitle = "SETTINGS · 保存在本机",
+        subtitle = if (compact) "偏好保存在本机" else "SETTINGS · 保存在本机",
         onClose = { state.overlay = OverlayMode.NONE },
         compact = compact,
     ) {
@@ -587,6 +645,7 @@ private fun SettingsOverlay(state: IdeState, compact: Boolean) {
         StepperRow(
             label = "代码字号",
             hint = "当前 ${RlSettings.codeFontSize.toInt()} sp（行高自动跟随）",
+            compact = compact,
             onMinus = {
                 RlSettings.codeFontSize = (RlSettings.codeFontSize - 1f).coerceAtLeast(12f)
                 RlSettings.persist()
@@ -602,54 +661,72 @@ private fun SettingsOverlay(state: IdeState, compact: Boolean) {
             hint = "按 Tab 时插入的空格数",
             options = listOf("2" to 2, "4" to 4, "8" to 8),
             selected = RlSettings.tabWidth,
+            compact = compact,
             onSelect = {
                 RlSettings.tabWidth = it
                 RlSettings.persist()
             },
         )
         Spacer(Modifier.height(6.dp))
-        ToggleRow("显示行号", "编辑器左侧的行号栏", RlSettings.showLineNumbers) {
+        ToggleRow("显示行号", "编辑器左侧的行号栏", RlSettings.showLineNumbers, compact) {
             RlSettings.showLineNumbers = it
             RlSettings.persist()
         }
-        ToggleRow("显示遥测栏", "最右侧的帧率/行数等信息条", RlSettings.showRail) {
-            RlSettings.showRail = it
-            RlSettings.persist()
+        if (!compact) {
+            ToggleRow("显示遥测栏", "最右侧的帧率/行数等信息条", RlSettings.showRail, compact = false) {
+                RlSettings.showRail = it
+                RlSettings.persist()
+            }
         }
 
-        SettingSection("面板")
-        ToggleRow("资源管理器", "左侧文件树", state.explorerVisible) {
-            state.explorerVisible = it
-            state.persistPanelPrefs()
-        }
-        ToggleRow("参考区", "右侧档案信息", state.referenceVisible) {
-            state.referenceVisible = it
-            state.persistPanelPrefs()
-        }
-        ToggleRow("分析控制台", "底部终端 / 问题 / 日志", state.outputVisible) {
-            state.outputVisible = it
-            state.persistPanelPrefs()
+        if (!compact) {
+            SettingSection("面板")
+            ToggleRow("资源管理器", "左侧文件树", state.explorerVisible, compact = false) {
+                state.explorerVisible = it
+                state.persistPanelPrefs()
+            }
+            ToggleRow("参考区", "右侧档案信息", state.referenceVisible, compact = false) {
+                state.referenceVisible = it
+                state.persistPanelPrefs()
+            }
+            ToggleRow("终端面板", "底部真实 shell / 问题 / 日志", state.outputVisible, compact = false) {
+                state.outputVisible = it
+                state.persistPanelPrefs()
+            }
+        } else {
+            SettingSection("面板")
+            ToggleRow("终端面板", "底部真实 shell / 问题 / 日志", state.outputVisible, compact = true) {
+                state.outputVisible = it
+                state.persistPanelPrefs()
+            }
         }
 
         SettingSection("操作")
-        ActionRow("快捷键一览", "浏览全部键盘绑定（Ctrl /）", "KEYBOARD") {
-            state.openOverlay(OverlayMode.SHORTCUTS)
+        if (!compact) {
+            ActionRow("快捷键一览", "浏览全部键盘绑定（Ctrl /）", "KEYBOARD", compact = false) {
+                state.openOverlay(OverlayMode.SHORTCUTS)
+            }
         }
-        ActionRow("重置工作区", "丢弃所有修改，回到初始档案", state.statusMessage) {
+        ActionRow(
+            "重置工作区",
+            "丢弃所有修改，回到初始档案",
+            state.statusMessage,
+            compact = compact,
+        ) {
             state.softReset()
             state.overlay = OverlayMode.NONE
         }
-        ActionRow("运行分析", "等同 F5", "ANALYSIS") { state.requestRun() }
-        ActionRow("工作区总览", "查看文档与统计（ESC 同效）", "OVERVIEW") {
+        ActionRow("在终端运行", "等同 F5", "SHELL", compact = compact) { state.requestRun() }
+        ActionRow("工作区总览", "查看文档与统计", "OVERVIEW", compact = compact) {
             state.openOverlay(OverlayMode.OVERVIEW)
         }
 
         SettingSection("关于")
-        InfoRow("版本", "LumiCode $LUMICODE_VERSION · 构建 $LUMICODE_STAMP")
-        InfoRow("运行平台", platformLabel())
-        InfoRow("代码字体", "JetBrains Mono + Noto Sans CJK（合并子集）")
-        InfoRow("界面字体", "Noto Sans CJK SC")
-        Spacer(Modifier.height(8.dp))
+        InfoRow("版本", "LumiCode $LUMICODE_VERSION · 构建 $LUMICODE_STAMP", compact)
+        InfoRow("运行平台", platformLabel(), compact)
+        InfoRow("代码字体", "JetBrains Mono + Noto Sans CJK（合并子集）", compact)
+        InfoRow("界面字体", "Noto Sans CJK SC", compact)
+        Spacer(Modifier.height(if (compact) 20.dp else 8.dp))
     }
 }
 
@@ -664,41 +741,67 @@ private fun ShortcutsOverlay(state: IdeState, commands: List<IdeCommand>, compac
     }
     SheetScaffold(
         title = "快捷键",
-        subtitle = "KEYBOARD · Ctrl / · ESC 关闭",
+        subtitle = if (compact) "常用键盘绑定" else "KEYBOARD · Ctrl / · ESC 关闭",
         onClose = { state.overlay = OverlayMode.NONE },
         compact = compact,
     ) {
         grouped.forEach { (group, items) ->
             SettingSection(group)
             items.forEach { cmd ->
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 7.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        BasicText(
-                            cmd.title,
-                            style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink),
-                        )
+                if (compact) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            BasicText(
+                                cmd.title,
+                                style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink),
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            HGap(10.dp)
+                            Chip(text = cmd.shortcut)
+                        }
                         Spacer(Modifier.height(3.dp))
                         LabelRaw(
                             text = cmd.chinese,
                             style = RlType.label(11.sp, RlColors.Faint),
+                            maxLines = 2,
                         )
                     }
-                    HGap(16.dp)
-                    Chip(text = cmd.shortcut)
+                } else {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            BasicText(
+                                cmd.title,
+                                style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink),
+                            )
+                            Spacer(Modifier.height(3.dp))
+                            LabelRaw(
+                                text = cmd.chinese,
+                                style = RlType.label(11.sp, RlColors.Faint),
+                            )
+                        }
+                        HGap(16.dp)
+                        Chip(text = cmd.shortcut)
+                    }
                 }
             }
         }
         Spacer(Modifier.height(8.dp))
         LabelRaw(
-            text = "无快捷键的命令仍可在 Ctrl K 命令面板中执行",
+            text = if (compact) "命令也可在命令面板中执行" else "无快捷键的命令仍可在 Ctrl K 命令面板中执行",
             style = RlType.label(11.sp, RlColors.Faint),
+            maxLines = 2,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(if (compact) 20.dp else 8.dp))
     }
 }
 
@@ -719,39 +822,62 @@ private fun SettingSection(title: String) {
 }
 
 @Composable
-private fun SettingRow(label: String, hint: String, control: @Composable () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().padding(vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            BasicText(label, style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink))
+private fun SettingRow(
+    label: String,
+    hint: String,
+    compact: Boolean = false,
+    control: @Composable () -> Unit,
+) {
+    if (compact) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 10.dp)) {
+            BasicText(label, style = RlType.body.copy(fontSize = 14.sp, color = RlColors.Ink))
             Spacer(Modifier.height(3.dp))
-            LabelRaw(text = hint, style = RlType.label(11.sp, RlColors.Faint))
+            LabelRaw(text = hint, style = RlType.label(11.sp, RlColors.Faint), maxLines = 2)
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                control()
+            }
         }
-        HGap(16.dp)
-        control()
+    } else {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                BasicText(label, style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink))
+                Spacer(Modifier.height(3.dp))
+                LabelRaw(text = hint, style = RlType.label(11.sp, RlColors.Faint))
+            }
+            HGap(16.dp)
+            control()
+        }
     }
 }
 
 @Composable
-private fun StepperRow(label: String, hint: String, onMinus: () -> Unit, onPlus: () -> Unit) {
-    SettingRow(label, hint) {
+private fun StepperRow(
+    label: String,
+    hint: String,
+    compact: Boolean = false,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit,
+) {
+    SettingRow(label, hint, compact) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StepperButton("−", onMinus)
-            Box(Modifier.width(46.dp), contentAlignment = Alignment.Center) {
+            StepperButton("−", onMinus, compact)
+            Box(Modifier.width(if (compact) 52.dp else 46.dp), contentAlignment = Alignment.Center) {
                 LabelRaw(
                     text = RlSettings.codeFontSize.toInt().toString(),
-                    style = RlType.mono.copy(fontSize = 13.sp, color = RlColors.Ink),
+                    style = RlType.mono.copy(fontSize = if (compact) 15.sp else 13.sp, color = RlColors.Ink),
                 )
             }
-            StepperButton("+", onPlus)
+            StepperButton("+", onPlus, compact)
         }
     }
 }
 
 @Composable
-private fun StepperButton(glyph: String, onClick: () -> Unit) {
+private fun StepperButton(glyph: String, onClick: () -> Unit, compact: Boolean = false) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Box(
@@ -759,13 +885,16 @@ private fun StepperButton(glyph: String, onClick: () -> Unit) {
             .wash(if (hovered) RlColors.AccentSoft else RlColors.FieldDeep)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .width(30.dp)
-            .height(26.dp),
+            .width(if (compact) 40.dp else 30.dp)
+            .height(if (compact) 36.dp else 26.dp),
         contentAlignment = Alignment.Center,
     ) {
         LabelRaw(
             text = glyph,
-            style = RlType.mono.copy(fontSize = 13.sp, color = if (hovered) RlColors.AccentDeep else RlColors.Ink),
+            style = RlType.mono.copy(
+                fontSize = if (compact) 16.sp else 13.sp,
+                color = if (hovered) RlColors.AccentDeep else RlColors.Ink,
+            ),
         )
     }
 }
@@ -776,9 +905,10 @@ private fun ChoiceRow(
     hint: String,
     options: List<Pair<String, Int>>,
     selected: Int,
+    compact: Boolean = false,
     onSelect: (Int) -> Unit,
 ) {
-    SettingRow(label, hint) {
+    SettingRow(label, hint, compact) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             options.forEach { (text, value) ->
                 val active = value == selected
@@ -787,18 +917,21 @@ private fun ChoiceRow(
                 Box(
                     Modifier
                         .wash(when {
-                                active -> RlColors.Ink
-                                hovered -> RlColors.FieldDeep
-                                else -> RlColors.Field.copy(alpha = 0.7f)
-                            })
+                            active -> RlColors.Ink
+                            hovered -> RlColors.FieldDeep
+                            else -> RlColors.Field.copy(alpha = 0.7f)
+                        })
                         .hoverable(interaction)
                         .clickable(interactionSource = interaction, indication = null) { onSelect(value) }
-                        .padding(horizontal = 12.dp, vertical = 5.dp),
+                        .padding(
+                            horizontal = if (compact) 16.dp else 12.dp,
+                            vertical = if (compact) 10.dp else 5.dp,
+                        ),
                 ) {
                     LabelRaw(
                         text = text,
                         style = RlType.mono.copy(
-                            fontSize = 12.sp,
+                            fontSize = if (compact) 14.sp else 12.sp,
                             color = if (active) Color.White else RlColors.InkSoft,
                         ),
                     )
@@ -809,19 +942,28 @@ private fun ChoiceRow(
 }
 
 @Composable
-private fun ToggleRow(label: String, hint: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    SettingRow(label, hint) {
+private fun ToggleRow(
+    label: String,
+    hint: String,
+    checked: Boolean,
+    compact: Boolean = false,
+    onChange: (Boolean) -> Unit,
+) {
+    SettingRow(label, hint, compact) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LabelRaw(
                 text = if (checked) "开启" else "关闭",
-                style = RlType.label(12.sp, if (checked) RlColors.AccentDeep else RlColors.Faint),
+                style = RlType.label(
+                    if (compact) 13.sp else 12.sp,
+                    if (checked) RlColors.AccentDeep else RlColors.Faint,
+                ),
             )
             HGap(10.dp)
             val interaction = remember { MutableInteractionSource() }
             Box(
                 Modifier
-                    .width(44.dp)
-                    .height(20.dp)
+                    .width(if (compact) 52.dp else 44.dp)
+                    .height(if (compact) 28.dp else 20.dp)
                     .wash(if (checked) RlColors.Accent else RlColors.HairStrong)
                     .hoverable(interaction)
                     .clickable(interactionSource = interaction, indication = null) { onChange(!checked) },
@@ -830,8 +972,8 @@ private fun ToggleRow(label: String, hint: String, checked: Boolean, onChange: (
                 Box(
                     Modifier
                         .padding(horizontal = 3.dp)
-                        .width(14.dp)
-                        .height(14.dp)
+                        .width(if (compact) 20.dp else 14.dp)
+                        .height(if (compact) 20.dp else 14.dp)
                         .wash(RlColors.Panel),
                 )
             }
@@ -840,25 +982,37 @@ private fun ToggleRow(label: String, hint: String, checked: Boolean, onChange: (
 }
 
 @Composable
-private fun ActionRow(label: String, hint: String, trailing: String, onClick: () -> Unit) {
+private fun ActionRow(
+    label: String,
+    hint: String,
+    trailing: String,
+    compact: Boolean = false,
+    onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 2.dp)
+            .padding(horizontal = if (compact) 0.dp else 8.dp, vertical = 2.dp)
             .wash(if (hovered) RlColors.FieldDeep else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 8.dp),
+            .padding(
+                horizontal = if (compact) 4.dp else 6.dp,
+                vertical = if (compact) 12.dp else 8.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            BasicText(label, style = RlType.body.copy(fontSize = 13.sp, color = RlColors.Ink))
+            BasicText(
+                label,
+                style = RlType.body.copy(fontSize = if (compact) 14.sp else 13.sp, color = RlColors.Ink),
+            )
             Spacer(Modifier.height(3.dp))
-            LabelRaw(text = hint, style = RlType.label(11.sp, RlColors.Faint))
+            LabelRaw(text = hint, style = RlType.label(11.sp, RlColors.Faint), maxLines = 2)
         }
-        HGap(16.dp)
+        HGap(12.dp)
         LabelRaw(
             text = "→",
             style = RlType.mono.copy(fontSize = 13.sp, color = if (hovered) RlColors.Accent else RlColors.InkSoft),
@@ -867,11 +1021,24 @@ private fun ActionRow(label: String, hint: String, trailing: String, onClick: ()
 }
 
 @Composable
-private fun InfoRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        LabelRaw(text = label, style = RlType.label(12.sp, RlColors.Muted))
-        Spacer(Modifier.width(20.dp))
-        BasicText(value, style = RlType.body.copy(fontSize = 12.5.sp, color = RlColors.InkSoft), maxLines = 2)
+private fun InfoRow(label: String, value: String, compact: Boolean = false) {
+    if (compact) {
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            LabelRaw(text = label, style = RlType.label(11.sp, RlColors.Muted))
+            Spacer(Modifier.height(4.dp))
+            BasicText(
+                value,
+                style = RlType.body.copy(fontSize = 13.sp, color = RlColors.InkSoft),
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    } else {
+        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            LabelRaw(text = label, style = RlType.label(12.sp, RlColors.Muted))
+            Spacer(Modifier.width(20.dp))
+            BasicText(value, style = RlType.body.copy(fontSize = 12.5.sp, color = RlColors.InkSoft), maxLines = 2)
+        }
     }
 }
 
@@ -885,16 +1052,30 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
 
     SheetScaffold(
         title = "工作区总览",
-        subtitle = "WORKSPACE OVERVIEW · 按 ESC 关闭",
+        subtitle = if (compact) "文档与统计" else "WORKSPACE OVERVIEW · 按 ESC 关闭",
         onClose = { state.overlay = OverlayMode.NONE },
         compact = compact,
     ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
-            StatBlock("档案数", files.size.toString())
-            StatBlock("总行数", totalLines.toString())
-            StatBlock("总字符", totalChars.toString())
-            StatBlock("未保存", state.dirtyCount.toString())
-            StatBlock("已保存次数", state.savedCount.toString())
+        if (compact) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    StatBlock("档案数", files.size.toString())
+                    StatBlock("总行数", totalLines.toString())
+                    StatBlock("总字符", totalChars.toString())
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                    StatBlock("未保存", state.dirtyCount.toString())
+                    StatBlock("已保存次数", state.savedCount.toString())
+                }
+            }
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                StatBlock("档案数", files.size.toString())
+                StatBlock("总行数", totalLines.toString())
+                StatBlock("总字符", totalChars.toString())
+                StatBlock("未保存", state.dirtyCount.toString())
+                StatBlock("已保存次数", state.savedCount.toString())
+            }
         }
         Spacer(Modifier.height(16.dp))
         Spacer(Modifier.height(12.dp))
@@ -907,35 +1088,41 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 8.dp)
+                    .padding(horizontal = if (compact) 0.dp else 8.dp)
                     .wash(if (hovered) RlColors.FieldDeep else Color.Transparent)
                     .hoverable(interaction)
                     .clickable(interactionSource = interaction, indication = null) {
                         state.open(path)
                         state.overlay = OverlayMode.NONE
                     }
-                    .padding(horizontal = 8.dp, vertical = 7.dp),
+                    .padding(
+                        horizontal = if (compact) 4.dp else 8.dp,
+                        vertical = if (compact) 10.dp else 7.dp,
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LabelRaw(
                     text = state.metaOf(path)?.meta?.archiveNo ?: "—",
                     style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint),
                 )
-                HGap(14.dp)
+                HGap(if (compact) 10.dp else 14.dp)
                 BasicText(
                     text = path,
                     style = RlType.mono.copy(
                         fontSize = 12.sp,
                         color = if (path == state.activePath) RlColors.Ink else RlColors.InkSoft,
                     ),
-                    maxLines = 1,
+                    modifier = Modifier.weight(1f),
+                    maxLines = if (compact) 2 else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.weight(1f))
-                LabelRaw(
-                    text = "${state.contentOf(path).count { it == '\n' } + 1} 行",
-                    style = RlType.label(12.sp, RlColors.Faint),
-                )
+                if (!compact) {
+                    HGap(8.dp)
+                    LabelRaw(
+                        text = "${state.contentOf(path).count { it == '\n' } + 1} 行",
+                        style = RlType.label(12.sp, RlColors.Faint),
+                    )
+                }
             }
         }
 
@@ -944,33 +1131,47 @@ private fun OverviewOverlay(state: IdeState, compact: Boolean) {
         Label("最近操作", style = RlType.label(12.sp, RlColors.Ink))
         Spacer(Modifier.height(8.dp))
         state.log.takeLast(6).reversed().forEach { entry ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
-                HGap(12.dp)
-                LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.InkSoft))
+            if (compact) {
+                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                    LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
+                    Spacer(Modifier.height(2.dp))
+                    LabelRaw(
+                        text = entry.text,
+                        style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.InkSoft),
+                        maxLines = 2,
+                    )
+                }
+            } else {
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint))
+                    HGap(12.dp)
+                    LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.InkSoft))
+                }
             }
         }
 
-        Spacer(Modifier.height(16.dp))
-        Spacer(Modifier.height(12.dp))
-        Label("快捷键", style = RlType.label(12.sp, RlColors.Ink))
-        Spacer(Modifier.height(8.dp))
-        listOf(
-            "⌘K / Ctrl+K" to "命令面板",
-            "⌘P / Ctrl+P" to "快速打开",
-            "⌘F / Ctrl+F" to "文档内查找",
-            "⌘S / Ctrl+S" to "保存档案",
-            "⌘N / Ctrl+N" to "新建文件",
-            "F5" to "运行分析",
-            "ESC" to "关闭浮层 / 控制台 / 本页",
-        ).forEach { (key, meaning) ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-                LabelRaw(text = key, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.Ink))
-                Spacer(Modifier.width(20.dp))
-                LabelRaw(text = meaning, style = RlType.body.copy(fontSize = 12.5.sp, color = RlColors.InkSoft))
+        if (!compact) {
+            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(12.dp))
+            Label("快捷键", style = RlType.label(12.sp, RlColors.Ink))
+            Spacer(Modifier.height(8.dp))
+            listOf(
+                "⌘K / Ctrl+K" to "命令面板",
+                "⌘P / Ctrl+P" to "快速打开",
+                "⌘F / Ctrl+F" to "文档内查找",
+                "⌘S / Ctrl+S" to "保存档案",
+                "⌘N / Ctrl+N" to "新建文件",
+                "F5" to "在终端运行",
+                "ESC" to "关闭浮层 / 控制台 / 本页",
+            ).forEach { (key, meaning) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    LabelRaw(text = key, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.Ink))
+                    Spacer(Modifier.width(20.dp))
+                    LabelRaw(text = meaning, style = RlType.body.copy(fontSize = 12.5.sp, color = RlColors.InkSoft))
+                }
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(if (compact) 20.dp else 8.dp))
     }
 }
 

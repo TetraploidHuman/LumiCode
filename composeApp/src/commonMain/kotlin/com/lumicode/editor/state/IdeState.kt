@@ -7,6 +7,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.lumicode.editor.model.CodeFile
 import com.lumicode.editor.model.buildTree
+import com.lumicode.editor.model.defaultMetaForPath
+import com.lumicode.editor.workspace.AgentFileEdit
+import com.lumicode.editor.workspace.WorkspaceApi
+import com.lumicode.editor.workspace.applyLineEdit
 import com.lumicode.editor.platform.LocalPrefs
 import com.lumicode.editor.platform.clockLabel
 import com.lumicode.editor.platform.platformLabel
@@ -21,6 +25,13 @@ enum class OverlayMode {
     GOTO_LINE,
     WORKSPACE_SEARCH,
     SHORTCUTS,
+    WORKSPACE_OPEN,
+}
+
+/** 顶层工作台：与代码编辑平级。 */
+enum class ShellPage {
+    CODE,
+    SQUAD,
 }
 
 enum class LineKind { INFO, OK, WARN, ERROR, MUTED }
@@ -50,7 +61,7 @@ data class WorkspaceHit(
  * The whole editor state tree. Plain Compose state — no platform dependencies,
  * so the same instance drives Android, desktop and wasm.
  */
-class IdeState(initialFiles: List<CodeFile>) {
+class IdeState(initialFiles: List<CodeFile> = emptyList()) {
 
     private val initialCatalogue: Map<String, CodeFile> = initialFiles.associateBy { it.path }
     private val catalogue = mutableStateMapOf<String, CodeFile>().apply { putAll(initialCatalogue) }
@@ -81,6 +92,20 @@ class IdeState(initialFiles: List<CodeFile>) {
     var overlay by mutableStateOf(OverlayMode.NONE)
     var overlayQuery by mutableStateOf("")
 
+    /** 代码工作区 / 小队工作台（平级）。 */
+    var shellPage by mutableStateOf(ShellPage.CODE)
+
+    fun openSquadPage() {
+        shellPage = ShellPage.SQUAD
+        collab.focusCollab()
+        statusMessage = "小队 · ${collab.briefing}"
+    }
+
+    fun openCodePage() {
+        shellPage = ShellPage.CODE
+        statusMessage = "代码 · ${activePath ?: "工作区"}"
+    }
+
     var findVisible by mutableStateOf(false)
     /** Ctrl+H 时展开替换行；Ctrl+F 仅查找。 */
     var findReplaceVisible by mutableStateOf(false)
@@ -110,8 +135,101 @@ class IdeState(initialFiles: List<CodeFile>) {
     var runToken by mutableStateOf(0)
     var statusMessage by mutableStateOf("会话已授权")
 
-    /** 人机共作台（MVP：本地状态机，后端尚未接 DSH）。 */
+    /** 终端：工作区内真实 shell（cwd 相对工作区根）。 */
+    var shellCwd by mutableStateOf("")
+    var shellDraft by mutableStateOf("")
+    var shellBusy by mutableStateOf(false)
+    var shellFocusToken by mutableStateOf(0)
+        private set
+    private val shellHistory = mutableListOf<String>()
+    private var shellHistoryIndex = -1
+
+    /** 交互式 PTY 终端缓冲（远程开发风格）。 */
+    var ptyText by mutableStateOf("")
+    var ptyReady by mutableStateOf(false)
+    var ptyError by mutableStateOf<String?>(null)
+    var ptyAttached by mutableStateOf(false)
+        private set
+
+    fun ensurePty() {
+        if (!workspaceMounted) {
+            ptyError = "请先打开工作区"
+            openWorkspacePicker()
+            return
+        }
+        if (ptyAttached && ptyReady) return
+        ptyError = null
+        ptyAttached = true
+        val backend = com.lumicode.editor.workspace.PtyApi.backend ?: run {
+            ptyError = "PTY 后端未安装"
+            return
+        }
+        backend.listener = { event ->
+            when (event) {
+                is com.lumicode.editor.workspace.PtyEvent.Ready -> {
+                    ptyReady = true
+                    ptyError = null
+                    appendPty("\r\n[pty ready · ${event.cwd} · pid ${event.pid}]\r\n")
+                }
+                is com.lumicode.editor.workspace.PtyEvent.Out -> appendPty(event.data)
+                is com.lumicode.editor.workspace.PtyEvent.Exit -> {
+                    ptyReady = false
+                    appendPty("\r\n[exit ${event.code}]\r\n")
+                }
+                is com.lumicode.editor.workspace.PtyEvent.Error -> {
+                    ptyReady = false
+                    ptyError = event.message
+                    appendPty("\r\n[pty error · ${event.message}]\r\n")
+                }
+                com.lumicode.editor.workspace.PtyEvent.Closed -> {
+                    ptyReady = false
+                    ptyAttached = false
+                }
+            }
+        }
+        com.lumicode.editor.workspace.PtyApi.connect(cwd = shellCwd, cols = 100, rows = 28)
+        outputVisible = true
+    }
+
+    fun appendPty(chunk: String) {
+        val next = ptyText + chunk
+        ptyText = if (next.length > 120_000) next.takeLast(100_000) else next
+    }
+
+    fun ptyInput(data: String) {
+        if (!ptyReady) {
+            ensurePty()
+        }
+        com.lumicode.editor.workspace.PtyApi.sendInput(data)
+    }
+
+    fun ptySubmitLine(line: String) {
+        val text = if (line.endsWith("\n")) line else "$line\n"
+        // 本地回显一行到旧日志（便于滚动查看历史命令）
+        appendTerminal("$ ${line.trimEnd()}", LineKind.INFO)
+        ptyInput(text)
+        shellDraft = ""
+    }
+
+    /** 人机共作台：UI 状态在本地，推理经 /api/dsh → lumicode-dsh-bridge → 本机 dsh-web。 */
     val collab = CollabState()
+
+    /** 已挂载的磁盘工作区根路径；空表示尚未选择文件夹。 */
+    var workspaceRoot by mutableStateOf<String?>(null)
+    var workspaceMounted by mutableStateOf(false)
+    var workspaceBusy by mutableStateOf(false)
+    var persistTick by mutableStateOf(0)
+        private set
+    private val persistQueue = mutableStateListOf<String>()
+    var deleteTick by mutableStateOf(0)
+        private set
+    private val deleteQueue = mutableStateListOf<String>()
+
+    /** 已挂载但内容尚未从磁盘拉取的路径（懒加载，避免启动白屏）。 */
+    private val unloadedPaths = mutableSetOf<String>()
+    var loadTick by mutableStateOf(0)
+        private set
+    private val loadQueue = mutableStateListOf<String>()
 
     var pendingRevealLine by mutableStateOf<Int?>(null)
     /** 递增令牌，保证同号行也能再次跳转。 */
@@ -132,13 +250,17 @@ class IdeState(initialFiles: List<CodeFile>) {
             contents[it.path] = it.content
             savedSnapshot[it.path] = it.content
         }
-        appendTerminal("[00] 挂载 /dev/archive ................. 通过", LineKind.OK)
-        appendTerminal("[01] 签名校验 ......................... 通过", LineKind.OK)
-        appendTerminal("[02] 会话已授权 · ${platformLabel()}", LineKind.INFO)
-        appendLog("工作区已挂载")
-        collab.appendAgent("[项目] 小队共作演示 · 按需开路 · 人当上级", LineKind.MUTED)
-        open("src/Main.kt")
-        rescanProblems()
+        appendTerminal("[00] 会话已授权 · ${platformLabel()}", LineKind.OK)
+        if (initialFiles.isNotEmpty()) {
+            workspaceMounted = false
+            appendLog("演示工作区（内存）")
+            collab.appendAgent("[项目] 小队 · 按需开路 · 人当上级", LineKind.MUTED)
+            open("src/Main.kt")
+            rescanProblems()
+        } else {
+            appendLog("请选择工作区文件夹")
+            statusMessage = "请选择工作区文件夹"
+        }
     }
 
     // ---------------------------------------------------------------- files
@@ -207,7 +329,7 @@ class IdeState(initialFiles: List<CodeFile>) {
         treeDialogError = null
     }
 
-    fun confirmTreeDialog() {
+    suspend fun confirmTreeDialog() {
         val dialog = treeDialog ?: return
         val name = treeDialogDraft.trim()
         if (name.isEmpty()) {
@@ -226,6 +348,14 @@ class IdeState(initialFiles: List<CodeFile>) {
                     return
                 }
                 createFileAt(path)
+                if (workspaceMounted) {
+                    val written = WorkspaceApi.writeFile(path, contentOf(path))
+                    if (!written.ok) {
+                        treeDialogError = written.error ?: "写入磁盘失败"
+                        return
+                    }
+                    savedSnapshot[path] = contentOf(path)
+                }
                 cancelTreeDialog()
             }
             is TreeDialog.NewFolder -> {
@@ -233,6 +363,13 @@ class IdeState(initialFiles: List<CodeFile>) {
                 if (pathTaken(path)) {
                     treeDialogError = "已存在同名项"
                     return
+                }
+                if (workspaceMounted) {
+                    val created = WorkspaceApi.mkdir(path)
+                    if (!created.ok) {
+                        treeDialogError = created.error ?: "创建文件夹失败"
+                        return
+                    }
                 }
                 emptyFolders[path] = true
                 if (dialog.parentFolder.isNotEmpty()) expanded[dialog.parentFolder] = true
@@ -254,6 +391,13 @@ class IdeState(initialFiles: List<CodeFile>) {
                     treeDialogError = "已存在同名项"
                     return
                 }
+                if (workspaceMounted) {
+                    val renamed = WorkspaceApi.rename(dialog.path, newPath)
+                    if (!renamed.ok) {
+                        treeDialogError = renamed.error ?: "重命名失败"
+                        return
+                    }
+                }
                 if (!renamePath(dialog.path, newPath, dialog.isFolder)) {
                     treeDialogError = "无法重命名"
                     return
@@ -265,7 +409,30 @@ class IdeState(initialFiles: List<CodeFile>) {
 
     fun deleteSelection() {
         val sel = treeSelection ?: return
-        deletePath(sel)
+        if (workspaceMounted) {
+            if (!deleteQueue.contains(sel)) deleteQueue.add(sel)
+            deleteTick++
+            statusMessage = "正在从磁盘删除…"
+        } else {
+            deletePath(sel)
+        }
+    }
+
+    fun drainDeleteQueue(): List<String> {
+        val batch = deleteQueue.toList()
+        deleteQueue.clear()
+        return batch
+    }
+
+    suspend fun flushDelete(path: String): Boolean {
+        val removed = WorkspaceApi.delete(path)
+        if (removed.ok) {
+            deletePath(path)
+            return true
+        }
+        statusMessage = removed.error ?: "删除失败"
+        appendTerminal("[!!] 删除失败 · $path", LineKind.ERROR)
+        return false
     }
 
     private fun pathTaken(path: String): Boolean =
@@ -284,18 +451,11 @@ class IdeState(initialFiles: List<CodeFile>) {
                 println("new archive entry")
             }
         """.trimIndent()
-        val meta = initialCatalogue.values.first().meta.copy(
-            archiveNo = "X-${(catalogue.size + 1).toString().padStart(3, '0')}",
-            department = "SCRATCH",
-            departmentCn = "草稿区",
-            collection = "UNCLASSIFIED",
-            collectionCn = "未分类",
-            related = "Operator",
-            abstract = "新建的未分类档案条目。写入后会被归档到工作区索引中，编号按创建顺序递增。",
-        )
+        val meta = defaultMetaForPath(path, catalogue.size + 1)
         catalogue[path] = CodeFile(path = path, content = template, meta = meta)
         contents[path] = template
         savedSnapshot[path] = ""
+        unloadedPaths.remove(path)
         emptyFolders.remove(path)
         val parent = path.substringBeforeLast('/', missingDelimiterValue = "")
         if (parent.isNotEmpty()) {
@@ -400,7 +560,8 @@ class IdeState(initialFiles: List<CodeFile>) {
     }
 
     fun open(path: String, revealLine: Int? = null) {
-        if (!contents.containsKey(path)) return
+        if (!catalogue.containsKey(path) && !contents.containsKey(path)) return
+        if (path in unloadedPaths) queueLoad(path)
         if (!openTabs.contains(path)) openTabs.add(path)
         activePath = path
         treeSelection = path
@@ -413,6 +574,37 @@ class IdeState(initialFiles: List<CodeFile>) {
         }
         appendLog("打开 ${path.substringAfterLast('/')}")
         if (overlay != OverlayMode.NONE) overlay = OverlayMode.NONE
+    }
+
+    fun queueLoad(path: String) {
+        if (!loadQueue.contains(path)) loadQueue.add(path)
+        loadTick++
+    }
+
+    fun drainLoadQueue(): List<String> {
+        val batch = loadQueue.toList()
+        loadQueue.clear()
+        return batch
+    }
+
+    suspend fun flushLoad(path: String): Boolean {
+        if (path !in unloadedPaths && contents.containsKey(path) && contentOf(path).isNotEmpty()) {
+            return true
+        }
+        val file = WorkspaceApi.readFile(path)
+        if (!file.ok || file.content == null) {
+            appendTerminal("[!!] 读取失败 · $path · ${file.error}", LineKind.ERROR)
+            unloadedPaths.remove(path)
+            return false
+        }
+        contents[path] = file.content
+        savedSnapshot[path] = file.content
+        catalogue[path] = (catalogue[path] ?: CodeFile(path, file.content, defaultMetaForPath(path, catalogue.size + 1)))
+            .copy(content = file.content)
+        unloadedPaths.remove(path)
+        bumpDocumentEpoch(path)
+        if (activePath == path) rescanProblems()
+        return true
     }
 
     /** 跳到当前文档指定行（1-based）；行号越界会夹紧。 */
@@ -617,15 +809,353 @@ class IdeState(initialFiles: List<CodeFile>) {
 
     fun save(path: String? = activePath) {
         val target = path ?: return
-        savedSnapshot[target] = contentOf(target)
-        savedCount++
-        statusMessage = "档案已写入"
-        appendTerminal("[${savedCount.toString().padStart(2, '0')}] 写入 ${target.substringAfterLast('/')} ......... 通过", LineKind.OK)
-        appendLog("保存 ${target.substringAfterLast('/')}")
+        if (!workspaceMounted) {
+            savedSnapshot[target] = contentOf(target)
+            savedCount++
+            statusMessage = "档案已写入（内存）"
+            appendTerminal("[${savedCount.toString().padStart(2, '0')}] 写入 ${target.substringAfterLast('/')} ......... 通过", LineKind.OK)
+            appendLog("保存 ${target.substringAfterLast('/')}")
+            return
+        }
+        queuePersist(target)
+        statusMessage = "正在写入磁盘…"
+    }
+
+    fun queuePersist(path: String) {
+        if (!persistQueue.contains(path)) persistQueue.add(path)
+        persistTick++
+    }
+
+    fun drainPersistQueue(): List<String> {
+        val batch = persistQueue.toList()
+        persistQueue.clear()
+        return batch
+    }
+
+    suspend fun flushPersist(path: String): Boolean {
+        val result = WorkspaceApi.writeFile(path, contentOf(path))
+        if (result.ok) {
+            savedSnapshot[path] = contentOf(path)
+            savedCount++
+            appendTerminal("[${savedCount.toString().padStart(2, '0')}] 落盘 ${path.substringAfterLast('/')} ......... 通过", LineKind.OK)
+            appendLog("落盘 ${path.substringAfterLast('/')}")
+            return true
+        }
+        appendTerminal("[!!] 落盘失败 · $path · ${result.error}", LineKind.ERROR)
+        statusMessage = result.error ?: "落盘失败"
+        return false
+    }
+
+    suspend fun mountWorkspace(path: String): Boolean {
+        workspaceBusy = true
+        val opened = WorkspaceApi.openRoot(path)
+        if (!opened.ok) {
+            workspaceBusy = false
+            statusMessage = opened.error ?: "无法打开工作区"
+            appendTerminal("[!!] 打开工作区失败 · ${opened.error}", LineKind.ERROR)
+            return false
+        }
+        val tree = WorkspaceApi.loadTree()
+        if (!tree.ok) {
+            workspaceBusy = false
+            statusMessage = tree.error ?: "读取工作区失败"
+            return false
+        }
+        val seededReadme = replaceWorkspaceFromTree(tree, opened.root ?: path)
+        workspaceRoot = opened.root ?: path
+        workspaceMounted = true
+        shellCwd = ""
+        LocalPrefs.set(KEY_WORKSPACE, workspaceRoot!!)
+        if (seededReadme) {
+            flushPersist("README.md")
+        }
+        workspaceBusy = false
+        overlay = OverlayMode.NONE
+        statusMessage = "工作区 · ${workspaceRoot!!.substringAfterLast('/')}"
+        collab.appendAgent("[项目] 工作区已挂载 · 小队经 DSH 可改盘", LineKind.MUTED)
+        appendTerminal("[00] 工作区 · $workspaceRoot · ${tree.files.size} 个文件", LineKind.OK)
+        appendTerminal("终端就绪 · 输入命令回车连接交互 PTY", LineKind.MUTED)
+        appendLog("挂载工作区")
+        // 问题扫描推迟到文件真正打开并加载内容之后，避免首帧卡死。
+        return true
+    }
+
+    suspend fun tryRestoreWorkspace(): Boolean {
+        val saved = LocalPrefs.get(KEY_WORKSPACE)?.trim().orEmpty()
+        if (saved.isEmpty()) return false
+        return mountWorkspace(saved)
+    }
+
+    fun openWorkspacePicker() {
+        overlay = OverlayMode.WORKSPACE_OPEN
+        overlayQuery = workspaceRoot.orEmpty()
+    }
+
+    /** @return true 表示挂载的是空目录并已种入 README.md，调用方应落盘。 */
+    private suspend fun replaceWorkspaceFromTree(
+        tree: com.lumicode.editor.workspace.WorkspaceTree,
+        root: String,
+    ): Boolean {
+        openTabs.clear()
+        catalogue.clear()
+        contents.clear()
+        savedSnapshot.clear()
+        emptyFolders.clear()
+        expanded.clear()
+        unloadedPaths.clear()
+        loadQueue.clear()
+        activePath = null
+        treeSelection = null
+        var idx = 0
+        for (rel in tree.files) {
+            idx++
+            // 只登记路径，内容按打开时懒加载 —— 全量拉文件会卡死 Wasm 首帧（白屏）。
+            catalogue[rel] = CodeFile(rel, "", defaultMetaForPath(rel, idx))
+            contents[rel] = ""
+            savedSnapshot[rel] = ""
+            unloadedPaths += rel
+        }
+        for (folder in tree.folders) emptyFolders[folder] = true
+        rebuildTree()
+        val first = tree.files.firstOrNull()
+        if (first != null) {
+            open(first)
+            return false
+        }
+        // 空工作区：种一个 README，避免编辑器空白、Agent 提案无处对照。
+        val seed = "README.md"
+        val body = "# ${root.substringAfterLast('/')}\n\n"
+        catalogue[seed] = CodeFile(seed, body, defaultMetaForPath(seed, 1))
+        contents[seed] = body
+        savedSnapshot[seed] = ""
+        rebuildTree()
+        open(seed)
+        return true
+    }
+
+    /** 供 Agent prompt 使用的工作区摘要与文件片段。 */
+    suspend fun workspaceContextBlock(maxFiles: Int = 8, maxCharsPerFile: Int = 3500): String {
+        if (!workspaceMounted) return ""
+        val rootLine = workspaceRoot?.let { "工作区根：$it" }.orEmpty()
+        val listing = contents.keys.sorted().take(48).joinToString("\n") { "- $it" }
+        val paths = buildList {
+            activePath?.let { add(it) }
+            contents.keys.sorted().forEach { if (it !in this) add(it) }
+        }.take(maxFiles)
+        for (path in paths) {
+            if (path in unloadedPaths) flushLoad(path)
+        }
+        val snippets = buildString {
+            for (path in paths) {
+                val text = contentOf(path)
+                if (text.isEmpty() && path in unloadedPaths) continue
+                val clipped = if (text.length <= maxCharsPerFile) text else text.take(maxCharsPerFile) + "\n…"
+                appendLine()
+                appendLine("--- file: $path ---")
+                append(clipped)
+            }
+        }
+        return buildString {
+            appendLine(rootLine)
+            appendLine("文件列表（相对路径）：")
+            appendLine(listing)
+            if (activePath != null) appendLine("当前打开：$activePath")
+            append(snippets)
+        }.trim()
+    }
+
+    suspend fun applyAgentProposal(taskId: String? = collab.selectedTaskId): Boolean {
+        val id = taskId ?: return false
+        val task = collab.tasks.firstOrNull { it.id == id } ?: return false
+        if (task.proposalEdits.isEmpty()) {
+            collab.goAlong(id)
+            return true
+        }
+        var ok = true
+        for (edit in task.proposalEdits) {
+            ok = applyAgentEdit(edit) && ok
+        }
+        rebuildTree()
+        collab.goAlong(id)
+        statusMessage = if (ok) "已同意并落盘" else "已同意 · 部分落盘失败"
+        return ok
+    }
+
+    private suspend fun applyAgentEdit(edit: AgentFileEdit): Boolean {
+        val path = edit.path.trim().replace('\\', '/')
+        if (!contents.containsKey(path)) {
+            val meta = defaultMetaForPath(path, catalogue.size + 1)
+            catalogue[path] = CodeFile(path, "", meta)
+            contents[path] = ""
+            savedSnapshot[path] = ""
+        }
+        val merged = applyLineEdit(contentOf(path), edit.startLine, edit.endLine, edit.content)
+        contents[path] = merged
+        if (activePath == path) bumpDocumentEpoch(path)
+        if (!openTabs.contains(path)) openTabs.add(path)
+        return if (workspaceMounted) flushPersist(path) else {
+            savedSnapshot[path] = merged
+            true
+        }
     }
 
     fun requestRun() {
+        outputVisible = true
+        if (shellDraft.isBlank()) {
+            shellDraft = defaultRunCommand()
+        }
         runToken++
+    }
+
+    /** F5 / 运行：按当前文件推断真实命令。 */
+    fun defaultRunCommand(): String {
+        val path = activePath ?: return "pwd"
+        val name = path.substringAfterLast('/')
+        return when {
+            name.endsWith(".sh") -> "bash ${shellQuote(path)}"
+            name.endsWith(".py") -> "python3 ${shellQuote(path)}"
+            name.endsWith(".js") || name.endsWith(".mjs") -> "node ${shellQuote(path)}"
+            name == "gradlew" || name.endsWith(".gradle.kts") || name.endsWith(".gradle") ->
+                if (contents.containsKey("gradlew")) "./gradlew tasks --quiet" else "ls"
+            name.endsWith(".kt") || name.endsWith(".kts") ->
+                "wc -l ${shellQuote(path)}"
+            name.endsWith(".md") -> "wc -l ${shellQuote(path)}"
+            else -> "ls -la ${shellQuote(path)}"
+        }
+    }
+
+    private fun shellQuote(path: String): String =
+        "'" + path.replace("'", "'\\''") + "'"
+
+    fun submitShellDraft() {
+        if (shellDraft.isBlank()) return
+        if (shellBusy) return
+        // Prefer interactive PTY when backend is available.
+        if (com.lumicode.editor.workspace.PtyApi.backend != null) {
+            ensurePty()
+            ptySubmitLine(shellDraft)
+            return
+        }
+        runToken++
+    }
+
+    fun shellHistoryUp() {
+        if (shellHistory.isEmpty()) return
+        if (shellHistoryIndex < 0) shellHistoryIndex = shellHistory.lastIndex
+        else shellHistoryIndex = (shellHistoryIndex - 1).coerceAtLeast(0)
+        shellDraft = shellHistory[shellHistoryIndex]
+    }
+
+    fun shellHistoryDown() {
+        if (shellHistory.isEmpty() || shellHistoryIndex < 0) return
+        shellHistoryIndex++
+        if (shellHistoryIndex > shellHistory.lastIndex) {
+            shellHistoryIndex = -1
+            shellDraft = ""
+        } else {
+            shellDraft = shellHistory[shellHistoryIndex]
+        }
+    }
+
+    suspend fun runShellCommand(command: String = shellDraft): Boolean {
+        val line = command.trim()
+        if (line.isEmpty()) return false
+        if (!workspaceMounted) {
+            appendTerminal("\$ $line", LineKind.MUTED)
+            appendTerminal("请先打开工作区文件夹", LineKind.ERROR)
+            statusMessage = "终端 · 未挂载工作区"
+            openWorkspacePicker()
+            return false
+        }
+        outputVisible = true
+        shellBusy = true
+        appendTerminal("$ ${promptPrefix()}$line", LineKind.INFO)
+        if (shellHistory.lastOrNull() != line) shellHistory.add(line)
+        shellHistoryIndex = -1
+
+        val cdTarget = parseCd(line)
+        if (cdTarget != null) {
+            val ok = changeShellCwd(cdTarget)
+            shellBusy = false
+            if (ok) {
+                shellDraft = ""
+                appendTerminal("cwd → ${shellCwd.ifEmpty { "." }}", LineKind.OK)
+                statusMessage = "终端 · ${shellCwd.ifEmpty { "/" }}"
+            }
+            shellFocusToken++
+            return ok
+        }
+
+        val result = WorkspaceApi.exec(line, shellCwd)
+        shellBusy = false
+        if (result.stdout.isNotEmpty()) {
+            result.stdout.split('\n').forEach { row ->
+                appendTerminal(row, LineKind.MUTED)
+            }
+        }
+        if (result.stderr.isNotEmpty()) {
+            result.stderr.split('\n').forEach { row ->
+                if (row.isNotEmpty()) appendTerminal(row, LineKind.WARN)
+            }
+        }
+        if (!result.ok && !result.error.isNullOrBlank() && result.stdout.isEmpty() && result.stderr.isEmpty()) {
+            appendTerminal(result.error!!, LineKind.ERROR)
+        }
+        appendTerminal(
+            "exit ${result.exitCode}",
+            if (result.ok) LineKind.OK else LineKind.ERROR,
+        )
+        shellDraft = ""
+        statusMessage = if (result.ok) "终端 · 完成" else "终端 · 退出码 ${result.exitCode}"
+        shellFocusToken++
+        return result.ok
+    }
+
+    private fun promptPrefix(): String {
+        val tip = shellCwd.ifEmpty { workspaceRoot?.substringAfterLast('/') ?: "." }
+        return if (tip.length <= 24) "$tip " else "…${tip.takeLast(22)} "
+    }
+
+    private fun parseCd(line: String): String? {
+        if (line == "cd") return ""
+        if (!line.startsWith("cd ")) return null
+        return line.removePrefix("cd ").trim().trim('"', '\'')
+    }
+
+    private suspend fun changeShellCwd(target: String): Boolean {
+        when {
+            target.isEmpty() || target == "~" -> {
+                shellCwd = ""
+                return true
+            }
+            target == "." -> return true
+            target.startsWith("/") -> {
+                appendTerminal("仅允许工作区内相对路径（用 cd 子目录 / cd ..）", LineKind.ERROR)
+                return false
+            }
+            else -> {
+                val next = joinShellPath(shellCwd, target)
+                val verify = WorkspaceApi.exec("test -d ${shellQuote(next.ifEmpty { "." })}", "")
+                if (!verify.ok) {
+                    appendTerminal("无此目录：$target", LineKind.ERROR)
+                    return false
+                }
+                shellCwd = next
+                return true
+            }
+        }
+    }
+
+    private fun joinShellPath(base: String, rel: String): String {
+        var parts = if (base.isEmpty()) emptyList() else base.split('/').filter { it.isNotEmpty() }
+        for (seg in rel.split('/')) {
+            when (seg) {
+                "", "." -> Unit
+                ".." -> if (parts.isNotEmpty()) parts = parts.dropLast(1)
+                else -> parts = parts + seg
+            }
+        }
+        return parts.joinToString("/")
     }
 
     // ---------------------------------------------------------- diagnostics
@@ -685,11 +1215,24 @@ class IdeState(initialFiles: List<CodeFile>) {
         untitledCounter = 0
         treeSelection = null
         cancelTreeDialog()
+        shellCwd = ""
+        shellDraft = ""
+        shellBusy = false
+        ptyText = ""
+        ptyReady = false
+        ptyError = null
+        ptyAttached = false
+        com.lumicode.editor.workspace.PtyApi.disconnect()
         statusMessage = "会话已授权"
         collab.resetRound()
         appendTerminal("[00] 重置会话 ......................... 通过", LineKind.OK)
         appendLog("重置会话")
-        open("src/Main.kt")
+        if (workspaceMounted) {
+            appendTerminal("工作区仍挂载 · ${workspaceRoot ?: "?"}", LineKind.MUTED)
+            activePath?.let { open(it) } ?: contents.keys.firstOrNull()?.let { open(it) }
+        } else {
+            open("src/Main.kt")
+        }
     }
 
     fun toggleOverlay(mode: OverlayMode) {
@@ -708,6 +1251,8 @@ class IdeState(initialFiles: List<CodeFile>) {
             treeDialog != null -> cancelTreeDialog()
             overlay != OverlayMode.NONE -> overlay = OverlayMode.NONE
             findVisible -> findVisible = false
+            shellPage == ShellPage.SQUAD && collab.detailAgentId != null -> collab.closeDetail()
+            shellPage == ShellPage.SQUAD -> openCodePage()
             else -> openOverlay(OverlayMode.OVERVIEW)
         }
     }
@@ -719,5 +1264,6 @@ class IdeState(initialFiles: List<CodeFile>) {
         const val KEY_EXPLORER = "panelExplorer"
         const val KEY_REFERENCE = "panelReference"
         const val KEY_OUTPUT = "panelOutput"
+        const val KEY_WORKSPACE = "workspaceRoot"
     }
 }

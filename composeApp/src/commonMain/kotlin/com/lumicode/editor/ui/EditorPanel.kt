@@ -28,14 +28,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -169,54 +173,66 @@ fun EditorPanel(
 
 @Composable
 private fun CollabEditorBanner(state: IdeState) {
+    val scope = rememberCoroutineScope()
     val collab = state.collab
     val focus = collab.selectedTask
     val running = collab.isRunning
     val workingNames = collab.workers.filter { it.taskId != null }.joinToString("、") { it.name }
-    Row(
+    val isProposal = focus?.status == TaskStatus.PROPOSAL
+    Column(
         Modifier
             .fillMaxWidth()
             .wash(RlColors.AccentSoft)
             .padding(horizontal = 10.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
-            LabelRaw(
-                text = when {
-                    focus?.status == TaskStatus.PROPOSAL ->
-                        "${focus.agentName ?: "Agent"} · ${focus.proposalPath}:${focus.proposalStart}–${focus.proposalEnd}"
-                    running ->
-                        "并行在跑 · $workingNames"
-                    else -> collab.briefing
-                },
-                style = RlType.label(11.sp, RlColors.AccentDeep),
-                maxLines = 2,
-            )
-            LabelRaw(
-                text = focus?.title?.let { if (it.length <= 28) it else it.take(28) + "…" }
-                    ?: "${collab.tasks.count { it.status == TaskStatus.WORKING }} 路工作中",
-                style = RlType.label(10.sp, RlColors.Muted),
-                maxLines = 1,
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                LabelRaw(
+                    text = when {
+                        isProposal && focus != null ->
+                            "${focus.agentName ?: "同伴"} · ${focus.proposalPath}:${focus.proposalStart}–${focus.proposalEnd}"
+                        running ->
+                            "并行在跑 · $workingNames"
+                        else -> collab.briefing
+                    },
+                    style = RlType.label(11.sp, RlColors.AccentDeep),
+                    maxLines = 2,
+                )
+                LabelRaw(
+                    text = focus?.title?.let { if (it.length <= 28) it else it.take(28) + "…" }
+                        ?: "${collab.tasks.count { it.status == TaskStatus.WORKING }} 路工作中",
+                    style = RlType.label(10.sp, RlColors.Muted),
+                    maxLines = 1,
+                )
+            }
+            if (!isProposal && running) {
+                GhostButton(text = "全停", onClick = {
+                    collab.stop()
+                    state.statusMessage = "小队 · ${collab.phaseLabel}"
+                })
+            }
         }
-        if (focus?.status == TaskStatus.PROPOSAL) {
-            GhostButton(text = "换写法", onClick = {
-                collab.tryAgain(focus.id)
-                state.statusMessage = "共作 · ${collab.phaseLabel}"
-            })
-            GhostButton(text = "这路别动", onClick = {
-                collab.leaveIt(focus.id)
-                state.statusMessage = "共作 · ${collab.phaseLabel}"
-            })
-            GhostButton(text = "顺着", onClick = {
-                collab.goAlong(focus.id)
-                state.statusMessage = "共作 · ${collab.phaseLabel}"
-            })
-        } else if (running) {
-            GhostButton(text = "全停", onClick = {
-                collab.stop()
-                state.statusMessage = "共作 · ${collab.phaseLabel}"
-            })
+        focus?.takeIf { isProposal }?.let { proposal ->
+            Spacer(Modifier.height(6.dp))
+            ProposalUserBrief(proposal, collab, compact = true)
+            Spacer(Modifier.height(6.dp))
+            ProposalActions(
+                onAgree = {
+                    scope.launch { state.applyAgentProposal(proposal.id) }
+                },
+                onRetry = {
+                    collab.tryAgain(proposal.id)
+                    state.statusMessage = "小队 · ${collab.phaseLabel}"
+                },
+                onOpinion = { note ->
+                    collab.giveOpinion(proposal.id, note)
+                    state.statusMessage = "小队 · 已送出意见"
+                },
+                onCancel = {
+                    collab.leaveIt(proposal.id)
+                    state.statusMessage = "小队 · ${collab.phaseLabel}"
+                },
+            )
         }
     }
 }
@@ -615,7 +631,7 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
         ) {
             LabelRaw(text = "▶", style = RlType.mono.copy(fontSize = 12.sp, color = Color.White))
             HGap(9.dp)
-            LabelRaw(text = "运行分析", style = RlType.label(12.sp, Color.White))
+            LabelRaw(text = "运行", style = RlType.label(12.sp, Color.White))
             HGap(16.dp)
             LabelRaw(text = "F5", style = RlType.label(12.sp, Color(0xFFBAC2CB)))
         }
@@ -650,16 +666,28 @@ private fun EditorFooter(state: IdeState, onRun: () -> Unit, compact: Boolean) {
     }
 }
 
-/** Bottom analysis console: terminal, problems and the archival access log. */
+/** Bottom console: real shell terminal, problems, access log, agent. */
 @Composable
 fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
     var tab by remember { mutableStateOf(0) }
     val density = LocalDensity.current
+    val shellFocus = remember { FocusRequester() }
+    val scroll = rememberScrollState()
+
+    LaunchedEffect(state.terminal.size, tab) {
+        if (tab == 0) scroll.animateScrollTo(scroll.maxValue)
+    }
+    LaunchedEffect(state.shellFocusToken) {
+        if (state.shellFocusToken > 0) {
+            tab = 0
+            runCatching { shellFocus.requestFocus() }
+        }
+    }
 
     Column(
         modifier
             .fillMaxWidth()
-            .height(188.dp),
+            .height(220.dp),
     ) {
         val consoleTabs = listOf("01 终端", "02 问题", "03 访问日志", "04 Agent")
         TabRow(
@@ -684,8 +712,6 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
         AnimatedContent(
             targetState = tab,
             transitionSpec = {
-                // 往右切就"新内容从右进、旧内容往左出"，往左切反过来——
-                // 方向本身就是信息，比单纯的淡入淡出更能说明"我翻到了哪一页"
                 val dir = if (targetState > initialState) 1 else -1
                 val travel = { forward: Boolean ->
                     with(density) { 36.dp.roundToPx() } * (if (forward) dir else -dir)
@@ -697,105 +723,193 @@ fun OutputPanel(state: IdeState, modifier: Modifier = Modifier) {
             label = "consoleTab",
         ) { current ->
             Column(Modifier.fillMaxSize().padding(top = 6.dp)) {
-            when (current) {
-                0 -> state.terminal.takeLast(9).forEach { line ->
-                    Row(Modifier.fillMaxWidth()) {
-                        LabelRaw(text = line.time, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint))
-                        HGap(12.dp)
-                        BasicText(
-                            text = line.text,
-                            style = RlType.mono.copy(
-                                fontSize = 11.5.sp,
-                                color = when (line.kind) {
-                                    LineKind.OK -> RlColors.CodeString
-                                    LineKind.WARN -> RlColors.CodeAnnotation
-                                    LineKind.ERROR -> Color(0xFF8C3A2B)
-                                    LineKind.MUTED -> RlColors.Faint
-                                    else -> RlColors.InkSoft
-                                },
-                            ),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-
-                1 -> if (state.problems.isEmpty()) {
-                    Label("未发现问题 · 文档状态良好", style = RlType.label(12.sp, RlColors.Faint))
-                } else {
-                    state.problems.take(7).forEach { problem ->
-                        val rowInteraction = remember { MutableInteractionSource() }
-                        val rowHovered by rowInteraction.collectIsHoveredAsState()
-                        Row(
+                when (current) {
+                    0 -> {
+                        LaunchedEffect(state.ptyText.length, tab) {
+                            if (tab == 0) scroll.animateScrollTo(scroll.maxValue)
+                        }
+                        Column(
                             Modifier
+                                .weight(1f)
                                 .fillMaxWidth()
-                                .hoverable(rowInteraction)
-                                .clickable(interactionSource = rowInteraction, indication = null) {
-                                    state.open(problem.path, revealLine = problem.line)
-                                },
+                                .verticalScroll(scroll),
+                        ) {
+                            if (state.ptyText.isNotEmpty()) {
+                                BasicText(
+                                    text = state.ptyText.takeLast(12_000),
+                                    style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.Ink),
+                                )
+                            }
+                            if (state.terminal.isEmpty() && state.ptyText.isEmpty()) {
+                                LabelRaw(
+                                    text = when {
+                                        !state.workspaceMounted -> "请先打开工作区，再连接交互终端"
+                                        state.ptyError != null -> "PTY · ${state.ptyError}"
+                                        else -> "交互终端 · 输入命令回车连接 PTY（或点「连接」）"
+                                    },
+                                    style = RlType.label(11.sp, RlColors.Faint),
+                                )
+                            }
+                            state.terminal.takeLast(40).forEach { line ->
+                                Row(Modifier.fillMaxWidth()) {
+                                    LabelRaw(
+                                        text = line.time,
+                                        style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint),
+                                    )
+                                    HGap(10.dp)
+                                    BasicText(
+                                        text = line.text,
+                                        style = RlType.mono.copy(
+                                            fontSize = 11.5.sp,
+                                            color = when (line.kind) {
+                                                LineKind.OK -> RlColors.CodeString
+                                                LineKind.WARN -> RlColors.CodeAnnotation
+                                                LineKind.ERROR -> Color(0xFF8C3A2B)
+                                                LineKind.MUTED -> RlColors.InkSoft
+                                                else -> RlColors.Ink
+                                            },
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Box(
-                                Modifier
-                                    .size(4.dp)
-                                    .background(if (problem.severity == LineKind.ERROR) RlColors.Ink else RlColors.Muted),
-                            )
-                            HGap(10.dp)
                             LabelRaw(
-                                text = problem.path.substringAfterLast('/'),
-                                style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft),
+                                text = when {
+                                    state.shellBusy -> "…"
+                                    state.ptyReady -> "❯"
+                                    else -> "$"
+                                },
+                                style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Accent),
                             )
-                            HGap(10.dp)
+                            HGap(8.dp)
                             LabelRaw(
-                                text = "${problem.line}:${problem.column}",
-                                style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Muted),
+                                text = if (state.ptyReady) "pty" else state.shellCwd.ifEmpty { "." },
+                                style = RlType.mono.copy(fontSize = 11.sp, color = RlColors.Faint),
                             )
-                            HGap(12.dp)
-                            LabelRaw(
-                                text = problem.message,
-                                style = RlType.mono.copy(
-                                    fontSize = 11.5.sp,
-                                    color = if (rowHovered) RlColors.Ink else RlColors.Muted,
-                                ),
+                            HGap(8.dp)
+                            BasicTextField(
+                                value = state.shellDraft,
+                                onValueChange = { state.shellDraft = it },
+                                enabled = !state.shellBusy,
+                                singleLine = true,
+                                textStyle = RlType.mono.copy(fontSize = 12.sp, color = RlColors.InkSoft),
+                                cursorBrush = SolidColor(RlColors.Accent),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .wash(RlColors.FieldDeep)
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                                    .focusRequester(shellFocus)
+                                    .onPreviewKeyEvent { event ->
+                                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                                        when (event.key) {
+                                            Key.Enter, Key.NumPadEnter -> {
+                                                state.submitShellDraft()
+                                                true
+                                            }
+                                            Key.DirectionUp -> {
+                                                state.shellHistoryUp()
+                                                true
+                                            }
+                                            Key.DirectionDown -> {
+                                                state.shellHistoryDown()
+                                                true
+                                            }
+                                            else -> false
+                                        }
+                                    },
+                            )
+                            HGap(6.dp)
+                            GhostButton(
+                                text = if (state.shellBusy) "执行中" else if (state.ptyReady) "发送" else "连接",
+                                onClick = {
+                                    if (state.shellDraft.isBlank() && !state.ptyReady) state.ensurePty()
+                                    else state.submitShellDraft()
+                                },
                             )
                         }
                     }
-                }
 
-                2 -> state.log.takeLast(8).forEach { entry ->
-                    Row(Modifier.fillMaxWidth()) {
-                        LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint))
-                        HGap(12.dp)
-                        LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft))
+                    1 -> if (state.problems.isEmpty()) {
+                        Label("未发现问题 · 文档状态良好", style = RlType.label(12.sp, RlColors.Faint))
+                    } else {
+                        state.problems.take(7).forEach { problem ->
+                            val rowInteraction = remember { MutableInteractionSource() }
+                            val rowHovered by rowInteraction.collectIsHoveredAsState()
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .hoverable(rowInteraction)
+                                    .clickable(interactionSource = rowInteraction, indication = null) {
+                                        state.open(problem.path, revealLine = problem.line)
+                                    },
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(4.dp)
+                                        .background(if (problem.severity == LineKind.ERROR) RlColors.Ink else RlColors.Muted),
+                                )
+                                HGap(10.dp)
+                                LabelRaw(
+                                    text = problem.path.substringAfterLast('/'),
+                                    style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft),
+                                )
+                                HGap(10.dp)
+                                LabelRaw(
+                                    text = "${problem.line}:${problem.column}",
+                                    style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Muted),
+                                )
+                                HGap(12.dp)
+                                LabelRaw(
+                                    text = problem.message,
+                                    style = RlType.mono.copy(
+                                        fontSize = 11.5.sp,
+                                        color = if (rowHovered) RlColors.Ink else RlColors.Muted,
+                                    ),
+                                )
+                            }
+                        }
                     }
-                }
 
-                else -> if (state.collab.agentLog.isEmpty()) {
-                    Label("Agent 待命 · 共作日志将显示于此", style = RlType.label(12.sp, RlColors.Faint))
-                } else {
-                    state.collab.agentLog.takeLast(9).forEach { entry ->
+                    2 -> state.log.takeLast(8).forEach { entry ->
                         Row(Modifier.fillMaxWidth()) {
                             LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint))
                             HGap(12.dp)
-                            BasicText(
-                                text = entry.text,
-                                style = RlType.mono.copy(
-                                    fontSize = 11.5.sp,
-                                    color = when (entry.kind) {
-                                        LineKind.OK -> RlColors.CodeString
-                                        LineKind.WARN -> RlColors.CodeAnnotation
-                                        LineKind.ERROR -> Color(0xFF8C3A2B)
-                                        LineKind.MUTED -> RlColors.Faint
-                                        else -> RlColors.InkSoft
-                                    },
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
+                            LabelRaw(text = entry.text, style = RlType.mono.copy(fontSize = 11.5.sp, color = RlColors.InkSoft))
+                        }
+                    }
+
+                    else -> if (state.collab.agentLog.isEmpty()) {
+                        Label("同伴待命 · 小队日志将显示于此", style = RlType.label(12.sp, RlColors.Faint))
+                    } else {
+                        state.collab.agentLog.takeLast(9).forEach { entry ->
+                            Row(Modifier.fillMaxWidth()) {
+                                LabelRaw(text = entry.time, style = RlType.mono.copy(fontSize = 12.sp, color = RlColors.Faint))
+                                HGap(12.dp)
+                                BasicText(
+                                    text = entry.text,
+                                    style = RlType.mono.copy(
+                                        fontSize = 11.5.sp,
+                                        color = when (entry.kind) {
+                                            LineKind.OK -> RlColors.CodeString
+                                            LineKind.WARN -> RlColors.CodeAnnotation
+                                            LineKind.ERROR -> Color(0xFF8C3A2B)
+                                            LineKind.MUTED -> RlColors.Faint
+                                            else -> RlColors.InkSoft
+                                        },
+                                    ),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                     }
                 }
-            }
             }
         }
     }

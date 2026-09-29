@@ -17,6 +17,9 @@ fun defaultCommands(
     onRun: () -> Unit,
 ): List<IdeCommand> = listOf(
     IdeCommand("save", "保存档案", "SAVE ARCHIVE", "Ctrl S", "01 / 文件") { state.save() },
+    IdeCommand("open-workspace", "打开工作区文件夹", "OPEN WORKSPACE", "-", "01 / 文件") {
+        state.openWorkspacePicker()
+    },
     IdeCommand("new", "新建文件", "NEW FILE", "Ctrl N", "01 / 文件") { state.newFile() },
     IdeCommand("new-folder", "新建文件夹", "NEW FOLDER", "-", "01 / 文件") { state.beginNewFolder() },
     IdeCommand("rename", "重命名", "RENAME", "-", "01 / 文件") { state.beginRename() },
@@ -47,26 +50,22 @@ fun defaultCommands(
         state.referenceVisible = !state.referenceVisible
         state.persistPanelPrefs()
     },
-    IdeCommand("collab", "打开任务板", "OPEN TASKS", "Ctrl ⇧ A", "03 / 版面") {
-        state.referenceVisible = true
-        state.collab.focusCollab()
-        state.persistPanelPrefs()
+    IdeCommand("collab", "打开小队工作台", "OPEN SQUAD", "Ctrl ⇧ A", "03 / 版面") {
+        state.openSquadPage()
     },
-    IdeCommand("console", "显示/隐藏分析控制台", "TOGGLE CONSOLE", "Ctrl J", "03 / 版面") {
+    IdeCommand("console", "显示/隐藏终端面板", "TOGGLE TERMINAL", "Ctrl J", "03 / 版面") {
         state.outputVisible = !state.outputVisible
         state.persistPanelPrefs()
     },
-    IdeCommand("collab-open", "新开一路 Agent", "OPEN LANE", "-", "07 / 共作") {
-        state.referenceVisible = true
-        state.collab.focusCollab()
+    IdeCommand("collab-open", "新开一路同伴", "OPEN LANE", "-", "07 / 小队") {
+        state.openSquadPage()
         state.collab.openLane()
-        state.persistPanelPrefs()
     },
-    IdeCommand("collab-stop", "关掉全部 Agent", "CLOSE ALL LANES", "-", "07 / 共作") {
+    IdeCommand("collab-stop", "关掉全部同伴", "CLOSE ALL LANES", "-", "07 / 小队") {
         state.collab.stop()
-        state.statusMessage = "共作 · ${state.collab.phaseLabel}"
+        state.statusMessage = "小队 · ${state.collab.phaseLabel}"
     },
-    IdeCommand("run", "运行分析", "RUN ANALYSIS", "F5", "04 / 运行") { onRun() },
+    IdeCommand("run", "在终端运行", "RUN IN TERMINAL", "F5", "04 / 运行") { onRun() },
     IdeCommand("export", "导出档案包", "EXPORT BUNDLE", "Ctrl E", "04 / 运行") {
         state.exportBundle()
     },
@@ -80,9 +79,9 @@ fun defaultCommands(
             state.appendLog("语言 ${lang.short}")
         }
     },
-    IdeCommand("clear", "清空控制台", "CLEAR CONSOLE", "-", "06 / 系统") {
+    IdeCommand("clear", "清空终端", "CLEAR TERMINAL", "-", "06 / 系统") {
         state.terminal.clear()
-        state.appendTerminal("[00] 控制台已清空", LineKind.MUTED)
+        state.appendTerminal("[00] 终端已清空", LineKind.MUTED)
     },
     IdeCommand("settings", "打开设置", "SETTINGS", "-", "06 / 系统") {
         state.openOverlay(OverlayMode.SETTINGS)

@@ -37,7 +37,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -152,6 +154,7 @@ fun ExplorerPanel(state: IdeState, showFooter: Boolean = true, modifier: Modifie
 
 @Composable
 private fun TreeNameDialog(state: IdeState) {
+    val scope = rememberCoroutineScope()
     val dialog = state.treeDialog ?: return
     val title = when (dialog) {
         is TreeDialog.NewFile -> "新建文件 · ${dialog.parentFolder.ifEmpty { "/" }}"
@@ -197,7 +200,7 @@ private fun TreeNameDialog(state: IdeState) {
                         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                         when (event.key) {
                             Key.Enter, Key.NumPadEnter -> {
-                                state.confirmTreeDialog()
+                                scope.launch { state.confirmTreeDialog() }
                                 true
                             }
                             Key.Escape -> {
@@ -214,7 +217,7 @@ private fun TreeNameDialog(state: IdeState) {
             }
             Spacer(Modifier.height(14.dp))
             Row {
-                GhostButton(text = "确定", glyph = "✓", onClick = { state.confirmTreeDialog() })
+                GhostButton(text = "确定", glyph = "✓", onClick = { scope.launch { state.confirmTreeDialog() } })
                 Spacer(Modifier.width(8.dp))
                 GhostButton(text = "取消", onClick = { state.cancelTreeDialog() })
             }

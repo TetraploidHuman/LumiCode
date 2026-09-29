@@ -54,6 +54,19 @@ data class FileNode(
     val fileCount: Int get() = if (isFolder) children.sumOf { if (it.isFolder) it.fileCount else 1 } else 1
 }
 
+/** 真实工作区文件的默认参考元数据。 */
+fun defaultMetaForPath(path: String, index: Int): FileMeta = FileMeta(
+    archiveNo = "W-${index.toString().padStart(3, '0')}",
+    department = "WORKSPACE",
+    departmentCn = "工作区",
+    collection = path.substringBeforeLast('/', path).ifEmpty { "ROOT" },
+    collectionCn = path.substringBeforeLast('/', "根目录").ifEmpty { "根目录" },
+    related = "Operator",
+    status = "LIVE · WRITABLE",
+    statusCn = "已挂载 · 可写",
+    abstract = "工作区文件 ${path.substringAfterLast('/')}",
+)
+
 fun buildTree(
     files: List<CodeFile>,
     extraFolders: Collection<String> = emptyList(),

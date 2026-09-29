@@ -47,8 +47,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.lumicode.editor.state.IdeState
-import com.lumicode.editor.state.LineKind
 import com.lumicode.editor.state.OverlayMode
+import com.lumicode.editor.state.ShellPage
 import com.lumicode.editor.state.defaultCommands
 import com.lumicode.editor.ui.CollaboratePanel
 import com.lumicode.editor.ui.EditorPanel
@@ -57,16 +57,16 @@ import com.lumicode.editor.ui.NavigationRow
 import com.lumicode.editor.ui.OutputPanel
 import com.lumicode.editor.ui.OverlayHost
 import com.lumicode.editor.ui.ReferencePanel
+import com.lumicode.editor.ui.SquadWorkspace
 import com.lumicode.editor.ui.StatusBar
+import com.lumicode.editor.ui.WorkspaceEffects
 import com.lumicode.editor.ui.TelemetryRail
 import com.lumicode.editor.ui.TopBar
-import com.lumicode.editor.ui.outlineOf
 import com.lumicode.editor.ui.theme.InstallArchiveFonts
 import com.lumicode.editor.ui.theme.RlColors
 import com.lumicode.editor.ui.theme.RlDimens
 import com.lumicode.editor.ui.theme.RlMotion
 import com.lumicode.editor.ui.theme.RlSettings
-import kotlinx.coroutines.delay
 
 /**
  * Root of the ANALYSIS OS shell. Identical on Android, desktop and wasm.
@@ -74,41 +74,11 @@ import kotlinx.coroutines.delay
 @Composable
 fun App(state: IdeState) {
     InstallArchiveFonts()
+    WorkspaceEffects(state)
     val commands = remember(state) { defaultCommands(state) { state.requestRun() } }
     val clock = rememberClock()
     val fps = rememberFps()
     val rootFocus = remember { FocusRequester() }
-
-    // Simulated analysis pass (F5 / Ctrl+Enter / RUN ANALYSIS).
-    LaunchedEffect(state.runToken) {
-        if (state.runToken == 0) return@LaunchedEffect
-        val file = state.activeFile ?: return@LaunchedEffect
-        state.outputVisible = true
-        state.statusMessage = "分析运行中"
-        state.appendTerminal("[运行] 分析流程 · ${file.name}", LineKind.INFO)
-        delay(180)
-        state.appendTerminal("      词法分析 .................... 通过", LineKind.OK)
-        delay(160)
-        val symbols = outlineOf(state.activeContent).size
-        state.appendTerminal("      符号 ${symbols.toString().padStart(3, '0')} 个 ................... 通过", LineKind.OK)
-        delay(200)
-        state.rescanProblems()
-        if (state.problems.isEmpty()) {
-            state.appendTerminal("      静态检查 .................... 无问题", LineKind.OK)
-        } else {
-            state.problems.take(3).forEach { problem ->
-                state.appendTerminal(
-                    "      ${problem.path.substringAfterLast('/')}:${problem.line} ${problem.message}",
-                    if (problem.severity == LineKind.ERROR) LineKind.ERROR else LineKind.WARN,
-                )
-            }
-        }
-        delay(160)
-        state.appendTerminal("      档案 ${file.meta.archiveNo} → 可读取", LineKind.OK)
-        state.appendTerminal("[完成] 分析结束 · ${state.problems.size} 个发现", LineKind.INFO)
-        state.statusMessage = "分析完成"
-        state.appendLog("运行 ${file.name}")
-    }
 
     Box(
         Modifier
@@ -181,9 +151,7 @@ fun App(state: IdeState) {
                     }
 
                     ctrl && shift && event.key == Key.A -> {
-                        state.referenceVisible = true
-                        state.collab.focusCollab()
-                        state.persistPanelPrefs()
+                        state.openSquadPage()
                         true
                     }
 
@@ -250,6 +218,8 @@ fun App(state: IdeState) {
                 state.explorerVisible = false
                 state.referenceVisible = false
                 state.outputVisible = false
+                // 手机上写代码少，默认进小队看进度与拍板
+                state.openSquadPage()
             }
         }
 
@@ -267,6 +237,11 @@ fun App(state: IdeState) {
             )
 
             Row(Modifier.weight(1f).fillMaxWidth()) {
+                when (state.shellPage) {
+                    ShellPage.SQUAD -> {
+                        SquadWorkspace(state, Modifier.weight(1f).fillMaxWidth(), compact = compact)
+                    }
+                    ShellPage.CODE -> {
                 // 侧栏的出现/消失也走宽度动画：中栏是 weight(1f)，会跟着一起收放，
                 // 所以代码区是"被让出空间"而不是"被闪一下"
                 AnimatedVisibility(
@@ -342,6 +317,8 @@ fun App(state: IdeState) {
                     }
                 }
                 if (!compact && RlSettings.showRail) TelemetryRail(state, fps)
+                    }
+                }
             }
 
             StatusBar(state, clock, compact = compact)

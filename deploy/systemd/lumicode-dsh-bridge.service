@@ -1,0 +1,24 @@
+[Unit]
+Description=LumiCode DSH bridge (Ktor) — proxies to already-running dsh-web, never restarts it
+After=network.target
+# Soft dependency only: bridge can start even if dsh is briefly down
+Wants=
+
+[Service]
+Type=simple
+WorkingDirectory=%h/LumiCodeNext
+Environment=DSH_WEB_URL=http://127.0.0.1:3080
+Environment=DSH_PROVIDER=qwen35-250
+Environment=DSH_MODEL=qwen35-9b
+Environment=LUMICODE_DSH_BRIDGE_HOST=127.0.0.1
+Environment=LUMICODE_DSH_BRIDGE_PORT=8098
+# Prefer explicit token file; journal discovery is the fallback inside the process
+Environment=JAVA_HOME=/nix/store/ikk8j180lhdwv20aiabvcic2mk8c9xna-openjdk-21.0.12.1+1/lib/openjdk
+ExecStart=/usr/bin/env bash -lc 'exec "$JAVA_HOME/bin/java" -jar %h/LumiCodeNext/dsh-bridge/build/libs/dsh-bridge-all.jar'
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

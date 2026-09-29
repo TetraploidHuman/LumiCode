@@ -82,6 +82,7 @@ kotlin {
             implementation(libs.compose.material3)
             implementation(libs.compose.ui)
             implementation(libs.compose.components.resources)
+            implementation(libs.kotlinx.coroutines.core)
             implementation(libs.kotlinx.datetime)
         }
         androidMain.dependencies {

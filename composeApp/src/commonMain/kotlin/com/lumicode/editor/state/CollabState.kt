@@ -6,7 +6,11 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
+import com.lumicode.editor.dsh.DshHealth
 import com.lumicode.editor.platform.clockLabel
+import com.lumicode.editor.workspace.AgentFileEdit
+import com.lumicode.editor.workspace.buildAgentPromptFooter
+import com.lumicode.editor.workspace.parseAgentReply
 
 enum class TaskStatus {
     WORKING,
@@ -46,7 +50,7 @@ data class AgentWorker(
     /** 职责说明（spawn description） */
     val description: String = "",
     val phase: MemberPhase = MemberPhase.ACTIVE,
-    val modelHint: String? = "demo",
+    val modelHint: String? = null,
 )
 
 data class CollabTask(
@@ -62,9 +66,42 @@ data class CollabTask(
     val proposalEnd: Int = 0,
     val proposalSummary: String? = null,
     val proposalNote: String? = null,
+    /** 给人看的结论（禁止堆未解释的探索黑话） */
+    val userBrief: String? = null,
+    /** 探索期出现、用户未必认识的说法 → 人话对照 */
+    val exploredTerms: List<ExploredTerm> = emptyList(),
     /** 对应共享任务板上的条目 */
     val boardTaskId: String? = null,
+    /** DSH 提案中的磁盘改动（同意后落盘） */
+    val proposalEdits: List<AgentFileEdit> = emptyList(),
 )
+
+/** 探索期术语：汇报时对照用户已知情报，未知名才用人话拆开。 */
+data class ExploredTerm(
+    val term: String,
+    val plain: String,
+    val where: String? = null,
+)
+
+/** 用户已知情报里的一条。 */
+data class KnownFact(
+    val id: String,
+    val label: String,
+    val detail: String = "",
+)
+
+/** 用户理解程度：影响汇报措辞深浅。 */
+enum class UnderstandingLevel {
+    BEGINNER,
+    FAMILIAR,
+    EXPERT,
+}
+
+fun UnderstandingLevel.labelZh(): String = when (this) {
+    UnderstandingLevel.BEGINNER -> "入门"
+    UnderstandingLevel.FAMILIAR -> "熟悉本项目"
+    UnderstandingLevel.EXPERT -> "深耕"
+}
 
 /**
  * 对齐 DSH `TeamTaskView`：共享任务板一行。
@@ -139,6 +176,12 @@ class CollabState {
     var constraint by mutableStateOf("不改构建与依赖")
     var draft by mutableStateOf("启动流程补「会话已授权」说明")
 
+    /** 用户已知情报：汇报前先对照，已知的不重复解释。 */
+    val knownFacts = mutableStateListOf<KnownFact>()
+    var understandingLevel by mutableStateOf(UnderstandingLevel.FAMILIAR)
+    var knownDraft by mutableStateOf("")
+    private var knownSeq = 0
+
     val workers = mutableStateListOf<AgentWorker>()
     val tasks = mutableStateListOf<CollabTask>()
     /** 共享任务板（对齐 DSH agentTeam.tasks） */
@@ -157,20 +200,189 @@ class CollabState {
     var talkDraft by mutableStateOf("")
     var talkTargetId by mutableStateOf<String?>(null)
 
-    var tickToken by mutableStateOf(0)
+    /** 经 lumicode-dsh-bridge 连到本机已运行的 dsh-web。 */
+    var dshLinked by mutableStateOf(false)
+    var dshModelLabel by mutableStateOf<String?>(null)
+    var dshBusy by mutableStateOf(false)
+    var dshRequestToken by mutableStateOf(0)
         private set
-    var replyToken by mutableStateOf(0)
+    var pendingDshTaskId by mutableStateOf<String?>(null)
         private set
-    var pendingReplyAgentId by mutableStateOf<String?>(null)
-        private set
-    var pendingReplyFromName by mutableStateOf<String?>(null)
-        private set
-    var pendingReplyText by mutableStateOf<String?>(null)
-        private set
+    private val dshSessionByAgent = mutableMapOf<String, String>()
+    private var dshSupervisorNote: String? = null
 
     private var agentSeq = 0
     private var taskSeq = 0
     private var boardSeq = 0
+
+    init {
+        seedDefaultKnownFacts()
+    }
+
+    private fun seedDefaultKnownFacts() {
+        if (knownFacts.isNotEmpty()) return
+        listOf(
+            "Main.kt" to "当前工程的主文件",
+            "登录页" to "用户进应用时看到的入口界面",
+            "Kotlin" to "本项目主要语言",
+            "write scope" to "任务允许改哪些文件范围（任务板字段）",
+            "SessionStore" to "打算用来集中存放会话状态的类名",
+        ).forEach { (label, detail) ->
+            knownSeq++
+            knownFacts.add(KnownFact(id = "k$knownSeq", label = label, detail = detail))
+        }
+    }
+
+    fun isTermKnown(term: String): Boolean {
+        val key = term.trim().lowercase()
+        if (key.isEmpty()) return false
+        return knownFacts.any { fact ->
+            val L = fact.label.trim().lowercase()
+            L == key || key in L || L in key
+        }
+    }
+
+    fun termsNeedingExplain(terms: List<ExploredTerm>): List<ExploredTerm> =
+        terms.filter { !isTermKnown(it.term) }
+
+    fun termsAssumedKnown(terms: List<ExploredTerm>): List<ExploredTerm> =
+        terms.filter { isTermKnown(it.term) }
+
+    fun onDshHealth(health: DshHealth) {
+        dshLinked = health.ok
+        dshModelLabel = when {
+            health.ok && health.provider != null && health.model != null ->
+                "${health.provider} / ${health.model}"
+            health.ok -> "DSH"
+            else -> health.error ?: "DSH 未就绪"
+        }
+    }
+
+    fun dshSessionFor(agentId: String): String? = dshSessionByAgent[agentId]
+
+    fun consumeDshSupervisorNote(): String? {
+        val note = dshSupervisorNote
+        dshSupervisorNote = null
+        return note
+    }
+
+    fun buildDshPrompt(
+        taskTitle: String,
+        supervisorNote: String? = null,
+        workspaceBlock: String? = null,
+    ): String {
+        val known = knownFacts.take(8).joinToString("\n") { "- ${it.label}：${it.detail}" }
+        return buildString {
+            appendLine("你是 LumiCode 编辑器的同伴 Agent，正在小队里执行一项代码任务。")
+            appendLine("任务：$taskTitle")
+            appendLine("约束：$constraint")
+            appendLine("用户理解口径：${understandingLevel.labelZh()}")
+            if (!workspaceBlock.isNullOrBlank()) {
+                appendLine()
+                appendLine("当前工作区（真实磁盘，路径相对工作区根）：")
+                appendLine(workspaceBlock)
+            }
+            if (known.isNotBlank()) {
+                appendLine()
+                appendLine("用户已知情报（不要重复解释这些）：")
+                appendLine(known)
+            }
+            supervisorNote?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                appendLine()
+                appendLine("上级补充意见：$it")
+            }
+            append(buildAgentPromptFooter())
+        }
+    }
+
+    private fun scheduleDshTask(taskId: String) {
+        pendingDshTaskId = taskId
+        dshRequestToken++
+    }
+
+    fun completeDshTask(taskId: String, reply: String, sessionId: String?) {
+        val task = tasks.firstOrNull { it.id == taskId } ?: return
+        sessionId?.let { dshSessionByAgent[task.agentId] = it }
+        val agentId = task.agentId
+        val agent = task.agentName
+        val parsed = parseAgentReply(reply)
+        val brief = parsed.summary
+        val first = parsed.edits.firstOrNull()
+        updateTask(taskId) {
+            it.copy(
+                beat = 1,
+                status = TaskStatus.PROPOSAL,
+                statusLine = if (parsed.edits.isEmpty()) "DSH 提案 · 等你定" else "DSH 提案 · ${parsed.edits.size} 处改动",
+                proposalPath = first?.path,
+                proposalStart = first?.startLine ?: 0,
+                proposalEnd = first?.endLine ?: 0,
+                proposalSummary = brief,
+                proposalNote = buildString {
+                    append(dshModelLabel ?: "DSH · qwen35-9b")
+                    if (parsed.edits.isNotEmpty()) append(" · 待落盘 ${parsed.edits.size} 处")
+                },
+                userBrief = brief,
+                exploredTerms = emptyList(),
+                proposalEdits = parsed.edits,
+            )
+        }
+        setWorker(agentId, taskId, "等你定 · DSH 提案在桌", phase = MemberPhase.ACTIVE)
+        journal(agentId, "DSH 回执 · ${dshModelLabel ?: "qwen35-9b"}", LineKind.WARN)
+        journal(agentId, brief.lines().firstOrNull()?.take(100) ?: brief.take(100), LineKind.INFO)
+        teamNote("$agent DSH 提案就绪 · 等上级", LineKind.WARN)
+        pendingDshTaskId = null
+    }
+
+    fun failDshTask(taskId: String, error: String) {
+        val task = tasks.firstOrNull { it.id == taskId } ?: return
+        journal(task.agentId, "DSH 失败 · $error", LineKind.WARN)
+        updateTask(taskId) {
+            it.copy(status = TaskStatus.STOPPED, statusLine = "DSH 失败")
+        }
+        setWorker(task.agentId, null, "DSH 失败 · $error", phase = MemberPhase.FAILED)
+        pendingDshTaskId = null
+    }
+
+    private fun kickTask(taskId: String, agentId: String, title: String) {
+        if (!dshLinked) {
+            journal(agentId, "DSH 未连接 · 请确认桥接与本机 dsh-web 在跑", LineKind.WARN)
+            updateTask(taskId) { it.copy(statusLine = "DSH 未连接") }
+            setWorker(agentId, taskId, "DSH 未连接", phase = MemberPhase.FAILED)
+            return
+        }
+        setWorker(agentId, taskId, "已发往 DSH · qwen35-9b", phase = MemberPhase.ACTIVE)
+        journal(agentId, "经 lumicode-dsh-bridge → dsh-web（qwen35-250 / qwen35-9b）", LineKind.MUTED)
+        scheduleDshTask(taskId)
+    }
+
+    fun addKnownFact(label: String, detail: String = "") {
+        val L = label.trim()
+        if (L.isEmpty()) return
+        if (isTermKnown(L)) return
+        knownSeq++
+        knownFacts.add(0, KnownFact(id = "k$knownSeq", label = L, detail = detail.trim()))
+        knownDraft = ""
+        teamNote("已知情报 +「$L」", LineKind.MUTED)
+    }
+
+    fun removeKnownFact(id: String) {
+        val gone = knownFacts.firstOrNull { it.id == id } ?: return
+        knownFacts.removeAll { it.id == id }
+        teamNote("已知情报 −「${gone.label}」", LineKind.MUTED)
+    }
+
+    fun markTermKnown(term: ExploredTerm) {
+        addKnownFact(term.term, term.plain)
+    }
+
+    fun cycleUnderstandingLevel() {
+        understandingLevel = when (understandingLevel) {
+            UnderstandingLevel.BEGINNER -> UnderstandingLevel.FAMILIAR
+            UnderstandingLevel.FAMILIAR -> UnderstandingLevel.EXPERT
+            UnderstandingLevel.EXPERT -> UnderstandingLevel.BEGINNER
+        }
+        teamNote("汇报口径改为「${understandingLevel.labelZh()}」", LineKind.INFO)
+    }
 
     val phaseLabel: String
         get() {
@@ -180,13 +392,13 @@ class CollabState {
                 w > 0 -> "$w 路在跑"
                 p > 0 -> "$p 个提案"
                 workers.isEmpty() -> "尚未开路"
-                else -> "${workers.size} 名 teammate"
+                else -> "${workers.size} 名同伴"
             }
         }
 
     val briefing: String
         get() = when {
-            workers.isEmpty() -> "Agent Teams 演示 · 你是 Lead · 按需 spawn teammate"
+            workers.isEmpty() -> "小队 · 你是上级 · 按需开路"
             else -> {
                 val w = tasks.count { it.status == TaskStatus.WORKING }
                 val p = tasks.count { it.status == TaskStatus.PROPOSAL }
@@ -227,9 +439,9 @@ class CollabState {
         val lead = RosterRow(
             id = "lead",
             name = "你",
-            roleLabel = "lead",
+            roleLabel = "上级",
             status = MemberLiveStatus.INACTIVE,
-            description = "上级 · 派活与拍板",
+            description = "派活与拍板",
             modelHint = null,
             dynamic = if (workers.isEmpty()) "待开路" else "指挥中",
             isLead = true,
@@ -240,8 +452,7 @@ class CollabState {
             RosterRow(
                 id = w.id,
                 name = w.name,
-                roleLabel = "teammate",
-                status = liveStatusOf(w),
+                roleLabel = "同伴",                status = liveStatusOf(w),
                 description = w.description.ifBlank {
                     w.taskId?.let { tid -> tasks.firstOrNull { it.id == tid }?.title }.orEmpty()
                 },
@@ -378,31 +589,6 @@ class CollabState {
         }
     }
 
-    /**
-     * 简单协调：若多人可能动同一文件区，提出对齐。
-     * 演示里提案都落 Main.kt，故第二路起会触发协调。
-     */
-    private fun coordinateIfNeeded(agentId: String, agentName: String, title: String) {
-        val peers = workers.filter { it.id != agentId && it.taskId != null }
-        if (peers.isEmpty()) return
-        val peerNames = peers.joinToString("、") { it.name }
-        val note = "协调：我和 $peerNames 可能都动到 src/Main.kt，先对齐接口边界，避免互相覆盖"
-        journal(agentId, note, LineKind.WARN)
-        setWorker(agentId, workers.first { it.id == agentId }.taskId, "协调中 · 对齐边界")
-        peers.forEach { peer ->
-            journal(peer.id, "$agentName 提议对齐 Main.kt 边界（其任务：「${title.take(12)}」）", LineKind.WARN, fromPeer = agentName)
-            journal(agentId, "已知会 ${peer.name}", LineKind.MUTED, toPeer = peer.name)
-        }
-        teamNote("$agentName 发起协调 · 与 $peerNames 对齐 Main.kt", LineKind.WARN)
-
-        // 安排一名同伴回复协调
-        val responder = peers.first()
-        pendingReplyAgentId = responder.id
-        pendingReplyFromName = agentName
-        pendingReplyText = "协调对齐 Main.kt 边界"
-        replyToken++
-    }
-
     private fun setWorker(
         id: String,
         taskId: String?,
@@ -503,11 +689,11 @@ class CollabState {
                 dynamic = "provisioning · 接单",
                 description = q,
                 phase = MemberPhase.PROVISIONING,
-                modelHint = "demo",
+                modelHint = if (dshLinked) "qwen35-9b" else null,
             ),
         )
         ensureJournal(agentId)
-        journal(agentId, "spawn · fresh 上下文 · 任务「$q」", LineKind.INFO)
+        journal(agentId, "开路 · 独立上下文 · 任务「$q」", LineKind.INFO)
         journal(agentId, "约束 · $constraint", LineKind.MUTED)
         journal(agentId, "任务板认领 ${board.id} · writeScopes ${board.writeScopes.joinToString()}", LineKind.MUTED)
 
@@ -528,10 +714,10 @@ class CollabState {
         briefTeamTo(agentId, "入场认人")
         val seniors = workers.filter { it.id != agentId }
         if (seniors.isEmpty()) {
-            teamNote("$name 入场 · Lead 下第一名 teammate", LineKind.INFO)
+            teamNote("$name 入场 · 上级下的第一名同伴", LineKind.INFO)
         } else {
             teamNote(
-                "$name 入场 · 「${if (q.length <= 12) q else q.take(12) + "…"}」· teammate ${workers.size}",
+                "$name 入场 · 「${if (q.length <= 12) q else q.take(12) + "…"}」· 同伴 ${workers.size}",
                 LineKind.INFO,
             )
             seniors.forEach { s ->
@@ -551,8 +737,8 @@ class CollabState {
         selectedTaskId = taskId
         draft = ""
         rightTab = 1
-        push(name, "spawn teammate · $q", LineKind.INFO)
-        tickToken++
+        push(name, "开路 · $q", LineKind.INFO)
+        kickTask(taskId, agentId, q)
     }
 
     fun dispatch(title: String = draft) = openLane(title)
@@ -604,7 +790,6 @@ class CollabState {
             setWorker(agentId, current.id, "续派 · $short")
             selectedTaskId = current.id
             briefTeamTo(agentId, "续派后复盘团队")
-            coordinateIfNeeded(agentId, w.name, q)
         } else {
             taskSeq++
             val taskId = "t$taskSeq"
@@ -632,13 +817,14 @@ class CollabState {
             selectedTaskId = taskId
             briefTeamTo(agentId, "接活前认人")
             broadcastRoster("${w.name} 改持新活")
-            coordinateIfNeeded(agentId, w.name, q)
         }
         assignDraft = ""
-        tickToken++
+        workers.firstOrNull { it.id == agentId }?.taskId?.let { tid ->
+            kickTask(tid, agentId, q)
+        }
     }
 
-    /** Agent 之间交流：写入双方日志，并安排对方延迟回复。 */
+    /** Agent 之间交流：写入双方日志（需对方在线查看，无自动代答）。 */
     fun talkToPeer(fromId: String, toId: String, text: String) {
         val msg = text.trim()
         if (msg.isEmpty()) return
@@ -651,131 +837,21 @@ class CollabState {
         setWorker(fromId, from.taskId, "刚问 ${to.name}")
         setWorker(toId, to.taskId, "收到 ${from.name}")
         push(from.name, "→${to.name}：$msg", LineKind.MUTED)
-
-        pendingReplyAgentId = toId
-        pendingReplyFromName = from.name
-        pendingReplyText = msg
-        replyToken++
         talkDraft = ""
-    }
-
-    /** UI 延迟后调用：同伴回复。 */
-    fun deliverPeerReply() {
-        val toId = pendingReplyAgentId ?: return
-        val fromName = pendingReplyFromName ?: return
-        val asked = pendingReplyText ?: return
-        val to = workers.firstOrNull { it.id == toId } ?: return
-        val reply = when {
-            asked.contains("协调") || asked.contains("对齐") || asked.contains("边界") ->
-                "同意对齐。我先避开你的行段，改完在白板上同步"
-            asked.contains("文件") || asked.contains("路径") || asked.contains("重叠") ->
-                "我这边也动 Main.kt；我们分块：你改上半，我守下半，冲突再喊"
-            asked.contains("一起") || asked.contains("帮忙") ->
-                "可以，我忙完当前刀就接你这段"
-            else ->
-                "收到。我看了团队分工，继续我的「${
-                    to.taskId?.let { tid -> tasks.firstOrNull { it.id == tid }?.title }?.take(10) ?: to.dynamic
-                }」，有依赖再同步"
-        }
-        journal(toId, reply, LineKind.OK, toPeer = fromName)
-        workers.firstOrNull { it.name == fromName }?.id?.let { fromId ->
-            journal(fromId, reply, LineKind.OK, fromPeer = to.name)
-        }
-        setWorker(toId, to.taskId, "已回 ${fromName}")
-        push(to.name, "→$fromName：$reply", LineKind.MUTED)
-        if (to.taskId != null) {
-            journal(toId, "把同伴意见记入本路备注", LineKind.MUTED)
-        }
-        pendingReplyAgentId = null
-        pendingReplyFromName = null
-        pendingReplyText = null
     }
 
     fun selectTask(id: String) {
         selectedTaskId = id
     }
 
-    fun tickAll() {
-        tasks.filter { it.status == TaskStatus.WORKING }.map { it.id }.forEach { advanceTask(it) }
-    }
-
-    private fun advanceTask(taskId: String) {
-        val task = tasks.firstOrNull { it.id == taskId } ?: return
-        if (task.status != TaskStatus.WORKING) return
-        val beat = task.beat + 1
-        val agentId = task.agentId
-        val agent = task.agentName
-        val short = task.title.let { if (it.length <= 12) it else it.take(12) + "…" }
-        when (beat) {
-            1 -> {
-                updateTask(taskId) { it.copy(beat = beat, statusLine = "摸相关文件…") }
-                setWorker(agentId, taskId, "摸清中 · 扫调用链", phase = MemberPhase.ACTIVE)
-                journal(agentId, "打开相关文件，梳理调用", LineKind.MUTED)
-                briefTeamTo(agentId, "动手前认人")
-                push(agent, "摸相关文件", LineKind.MUTED)
-                coordinateIfNeeded(agentId, agent, task.title)
-            }
-            2 -> {
-                updateTask(taskId) { it.copy(beat = beat, statusLine = "起草中…") }
-                setWorker(agentId, taskId, "起草中 · 写草案")
-                journal(agentId, "开始起草改动草案", LineKind.INFO)
-                val mates = teammatesOf(agentId)
-                if (mates.isNotEmpty()) {
-                    journal(
-                        agentId,
-                        "起草时留意同事：${mates.joinToString("、") { it.first }}",
-                        LineKind.MUTED,
-                    )
-                }
-                push(agent, "开始起草", LineKind.INFO)
-            }
-            else -> {
-                // 按在场顺序错开行段，模拟协调后的分块（甲上半 / 乙下半…）
-                val slot = workers.indexOfFirst { it.id == agentId }.coerceAtLeast(0)
-                val base = 12 + slot * 8
-                val note = if (workers.size > 1) {
-                    "演示未写盘 · 已与同伴错开 Main.kt L$base–${base + 5}"
-                } else {
-                    "演示未写盘"
-                }
-                updateTask(taskId) {
-                    it.copy(
-                        beat = beat,
-                        status = TaskStatus.PROPOSAL,
-                        statusLine = "提案已放上桌 · 等你定",
-                        proposalPath = "src/Main.kt",
-                        proposalStart = base,
-                        proposalEnd = base + 5,
-                        proposalSummary = "针对「${it.title}」的草案",
-                        proposalNote = note,
-                    )
-                }
-                setWorker(agentId, taskId, "等你定 · 提案在桌")
-                journal(agentId, "提案上桌 · Main.kt:$base–${base + 5} · 请上级拍板", LineKind.WARN)
-                teamNote("$agent 提案就绪 · Main.kt:$base–${base + 5} · 等上级", LineKind.WARN)
-                teammatesOf(agentId).forEach { (peerName, _) ->
-                    val peerId = workers.firstOrNull { it.name == peerName }?.id ?: return@forEach
-                    journal(
-                        peerId,
-                        "$agent 已交提案（L$base–${base + 5}），我守自己的块",
-                        LineKind.MUTED,
-                        fromPeer = agent,
-                    )
-                }
-                push(agent, "提案上桌 · Main.kt:$base–${base + 5}", LineKind.WARN)
-                if (selectedTaskId == null || selectedTaskId == taskId) selectedTaskId = taskId
-            }
-        }
-    }
-
     fun goAlong(taskId: String? = selectedTaskId) {
         val id = taskId ?: return
         val task = tasks.firstOrNull { it.id == id } ?: return
         if (task.status != TaskStatus.PROPOSAL) return
-        push(task.agentName, "上级顺着 · 本路收束（演示未写盘）", LineKind.OK)
-        journal(task.agentId, "上级顺着 · 本刀收束", LineKind.OK)
-        teamNote("上级批准 ${task.agentName} · 「${task.title.take(14)}」", LineKind.OK)
-        updateTask(id) { it.copy(status = TaskStatus.DONE, statusLine = "已收") }
+        push(task.agentName, "上级同意 · 本路收束", LineKind.OK)
+        journal(task.agentId, "上级同意 · 本刀收束", LineKind.OK)
+        teamNote("上级同意 ${task.agentName} · 「${task.title.take(14)}」", LineKind.OK)
+        updateTask(id) { it.copy(status = TaskStatus.DONE, statusLine = "已同意") }
         task.boardTaskId?.let { bid ->
             updateBoard(bid) { it.copy(status = BoardTaskStatus.COMPLETED) }
             // 解锁依赖本任务的 pending
@@ -788,56 +864,11 @@ class CollabState {
         journal(task.agentId, "空闲，等上级下一句", LineKind.MUTED)
         teammatesOf(task.agentId).forEach { (peerName, _) ->
             val peerId = workers.firstOrNull { it.name == peerName }?.id ?: return@forEach
-            journal(peerId, "上级已批准 ${task.agentName}，我继续本职", LineKind.MUTED)
+            journal(peerId, "上级已同意 ${task.agentName}，我继续本职", LineKind.MUTED)
         }
         selectedTaskId = tasks.firstOrNull {
             it.status == TaskStatus.PROPOSAL || it.status == TaskStatus.WORKING
         }?.id
-    }
-
-    /**
-     * 演示：两人 teammate + 任务板依赖（对齐 Claude/DSH：认领、阻塞、重叠写入提示）。
-     */
-    fun seedDemoPair() {
-        if (workers.isNotEmpty()) stop()
-        agentSeq = 0
-        taskSeq = 0
-        boardSeq = 0
-        boardTasks.clear()
-
-        openLane("登录页补「会话已授权」提示文案")
-        val firstBoardId = boardTasks.firstOrNull()?.id
-
-        openLane("把会话状态抽到独立 SessionStore")
-
-        // 第三条：被前两条阻塞的联调（只在板上，等人批完前两条才 ready）
-        addBoardTask(
-            subject = "联调自检",
-            description = "登录提示与 SessionStore 都就绪后跑一遍冒烟",
-            ownerName = null,
-            status = BoardTaskStatus.PENDING,
-            blockedBy = boardTasks.filter { it.status == BoardTaskStatus.IN_PROGRESS }.map { it.id },
-            writeScopes = listOf("src/Main.kt", "test/"),
-        )
-
-        teamNote(
-            "演示小队 · Lead=你 · teammate=${workers.size} · 任务板=${boardTasks.size}" +
-                (firstBoardId?.let { " · 首条 $it" } ?: ""),
-            LineKind.INFO,
-        )
-        rightTab = 1
-    }
-
-    /** 详情页快捷话术，方便演示同伴协调。 */
-    fun talkPresets(fromId: String): List<String> {
-        val peers = teammatesOf(fromId)
-        if (peers.isEmpty()) return emptyList()
-        val other = peers.first().first
-        return listOf(
-            "我们对齐一下 Main.kt 边界？",
-            "你那边动哪些文件？有重叠吗？",
-            "$other，我这边接口草好了，你按这个接",
-        )
     }
 
     fun tryAgain(taskId: String? = selectedTaskId) {
@@ -853,22 +884,52 @@ class CollabState {
                 proposalPath = null,
                 proposalSummary = null,
                 proposalNote = null,
+                userBrief = null,
+                exploredTerms = emptyList(),
             )
         }
         setWorker(task.agentId, id, "重跑中")
-        tickToken++
+        kickTask(id, task.agentId, task.title)
+    }
+
+    /** 上级给出修改意见，同伴按意见重做。 */
+    fun giveOpinion(taskId: String? = selectedTaskId, note: String) {
+        val q = note.trim()
+        if (q.isEmpty()) return
+        val id = taskId ?: return
+        val task = tasks.firstOrNull { it.id == id } ?: return
+        if (task.status != TaskStatus.PROPOSAL) return
+        val short = if (q.length <= 36) q else q.take(36) + "…"
+        push(task.agentName, "上级意见 · $short", LineKind.WARN)
+        journal(task.agentId, "上级意见 · $q", LineKind.WARN)
+        teamNote("上级意见给 ${task.agentName} · $short", LineKind.WARN)
+        updateTask(id) {
+            it.copy(
+                status = TaskStatus.WORKING,
+                beat = 0,
+                statusLine = "按意见改",
+                proposalPath = null,
+                proposalSummary = null,
+                proposalNote = q,
+                userBrief = null,
+                exploredTerms = emptyList(),
+            )
+        }
+        setWorker(task.agentId, id, "按意见改写中")
+        dshSupervisorNote = q
+        kickTask(id, task.agentId, task.title)
     }
 
     fun leaveIt(taskId: String? = selectedTaskId) {
         val id = taskId ?: return
         val task = tasks.firstOrNull { it.id == id } ?: return
-        push(task.agentName, "上级：关掉这路", LineKind.MUTED)
-        journal(task.agentId, "上级关掉本路任务", LineKind.MUTED)
+        push(task.agentName, "上级：取消这路", LineKind.MUTED)
+        journal(task.agentId, "上级取消本路任务", LineKind.MUTED)
         updateTask(id) {
-            it.copy(status = TaskStatus.STOPPED, statusLine = "已关掉", proposalPath = null)
+            it.copy(status = TaskStatus.STOPPED, statusLine = "已取消", proposalPath = null)
         }
-        // 关掉任务但 Agent 仍可留着；若用户从卡片「遣散」再移除
-        setWorker(task.agentId, null, "空闲 · 任务已关")
+        // 取消任务但同伴仍可留着；若用户从卡片「遣散」再移除
+        setWorker(task.agentId, null, "空闲 · 任务已取消")
         selectedTaskId = tasks.firstOrNull {
             it.status == TaskStatus.PROPOSAL || it.status == TaskStatus.WORKING
         }?.id
@@ -883,7 +944,7 @@ class CollabState {
             val t = tasks.firstOrNull { it.id == tid }
             if (t != null && (t.status == TaskStatus.WORKING || t.status == TaskStatus.PROPOSAL)) {
                 updateTask(tid) {
-                    it.copy(status = TaskStatus.STOPPED, statusLine = "随 Agent 遣散", proposalPath = null)
+                    it.copy(status = TaskStatus.STOPPED, statusLine = "随同伴遣散", proposalPath = null)
                 }
             }
         }
@@ -923,7 +984,7 @@ class CollabState {
         agentSeq = 0
         taskSeq = 0
         boardSeq = 0
-        appendAgent("[项目] 清空 · 需要时再 spawn", LineKind.MUTED)
+        appendAgent("[项目] 清空 · 需要时再开路", LineKind.MUTED)
     }
 
     fun focusCollab() {

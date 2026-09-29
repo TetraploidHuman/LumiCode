@@ -4,7 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
-import com.lumicode.editor.model.SampleWorkspace
+import com.lumicode.editor.platform.installPlatformBackends
 import com.lumicode.editor.state.IdeState
 import com.lumicode.editor.ui.theme.RlSettings
 
@@ -59,7 +59,8 @@ data class DesktopWindowSize(
 fun LumiCodeDesktopRoot() {
     val state = remember {
         RlSettings.load()
-        IdeState(SampleWorkspace.files).also { it.loadPanelPrefs() }
+        installPlatformBackends()
+        IdeState().also { it.loadPanelPrefs() }
     }
     App(state)
 }
