@@ -97,12 +97,15 @@ fun SquadWorkspace(state: IdeState, modifier: Modifier = Modifier, compact: Bool
                     .verticalScroll(rememberScrollState()),
             ) {
                 SquadAwaiting(collab, state, compact = true)
+                ToolApprovalBanner(state)
                 Spacer(Modifier.height(14.dp))
                 SquadSpawnBar(collab, state, compact = true)
                 Spacer(Modifier.height(14.dp))
                 SquadRosterColumn(collab, state, listCompact = true)
                 Spacer(Modifier.height(14.dp))
                 SquadTaskBoard(collab)
+                Spacer(Modifier.height(14.dp))
+                GitPanel(state, compact = true)
                 Spacer(Modifier.height(14.dp))
                 SquadEvents(collab, compact = true)
                 Spacer(Modifier.height(14.dp))
@@ -131,8 +134,11 @@ fun SquadWorkspace(state: IdeState, modifier: Modifier = Modifier, compact: Bool
                         .verticalScroll(rememberScrollState()),
                 ) {
                     SquadAwaiting(collab, state, compact = false)
+                    ToolApprovalBanner(state)
                     Spacer(Modifier.height(20.dp))
                     SquadTaskBoard(collab)
+                    Spacer(Modifier.height(20.dp))
+                    GitPanel(state, compact = false)
                     Spacer(Modifier.height(20.dp))
                     SquadEvents(collab, compact = false)
                     Spacer(Modifier.height(24.dp))
@@ -453,7 +459,7 @@ private fun SquadAwaiting(collab: CollabState, state: IdeState, compact: Boolean
                         })
                     }
                     Spacer(Modifier.height(8.dp))
-                    ProposalUserBrief(task, collab, compact = compact)
+                    ProposalUserBrief(task, collab, compact = compact, state = state)
                     Spacer(Modifier.height(8.dp))
                     ProposalActions(
                         onAgree = {

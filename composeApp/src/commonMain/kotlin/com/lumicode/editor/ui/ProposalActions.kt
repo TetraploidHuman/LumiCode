@@ -47,6 +47,7 @@ fun ProposalUserBrief(
     collab: CollabState,
     compact: Boolean,
     modifier: Modifier = Modifier,
+    state: IdeState? = null,
 ) {
     val brief = task.userBrief ?: task.proposalSummary
     val unknown = collab.termsNeedingExplain(task.exploredTerms)
@@ -55,7 +56,10 @@ fun ProposalUserBrief(
     if (brief.isNullOrBlank() && unknown.isEmpty() && assumed.isEmpty() && changes.isEmpty()) return
     var termsOpen by remember(task.id) { mutableStateOf(!compact && unknown.isNotEmpty()) }
     Column(modifier.fillMaxWidth()) {
-        if (changes.isNotEmpty()) {
+        if (state != null && changes.isNotEmpty() && !task.snapshotId.isNullOrBlank()) {
+            ChangeDiffPanel(task, state, compact)
+            Spacer(Modifier.height(6.dp))
+        } else if (changes.isNotEmpty()) {
             LabelRaw(
                 text = "改动记录 · ${changes.size} 个文件",
                 style = RlType.label(10.sp, RlColors.Accent),

@@ -110,6 +110,8 @@ private fun SquadGlance(collab: CollabState, state: IdeState) {
             Spacer(Modifier.height(12.dp))
             UserKnownIntelPanel(collab, state, compact = true)
             Spacer(Modifier.height(12.dp))
+            ToolApprovalBanner(state)
+            Spacer(Modifier.height(12.dp))
             Label("进度", style = RlType.label(10.5.sp, RlColors.Faint))
             Spacer(Modifier.height(6.dp))
             ProgressBlock(collab)
@@ -139,7 +141,7 @@ private fun SquadGlance(collab: CollabState, state: IdeState) {
                                 } ?: task.statusLine
                                 LabelRaw(text = range, style = RlType.mono.copy(fontSize = 10.sp, color = RlColors.Muted), maxLines = 1)
                                 Spacer(Modifier.height(6.dp))
-                                ProposalUserBrief(task, collab, compact = true)
+                                ProposalUserBrief(task, collab, compact = true, state = state)
                                 Spacer(Modifier.height(6.dp))
                                 ProposalActions(
                                     onAgree = {

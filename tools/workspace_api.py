@@ -436,6 +436,120 @@ class WorkspaceStore:
             return {"ok": False, "error": str(error)}
         return {"ok": True, "snapshotId": snap_id, "forgotten": True}
 
+    def snapshot_file_diff(self, snap_id: str, rel_path: str) -> dict[str, Any]:
+        """Return before/after text for one path vs a snapshot."""
+        base = self._require_root()
+        try:
+            snap_root = self._snap_dir(base, snap_id)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        manifest_path = snap_root / "manifest.json"
+        if not manifest_path.is_file():
+            return {"ok": False, "error": "snapshot not found"}
+        rel = rel_path.replace("\\", "/").lstrip("/")
+        before_path = snap_root / "files" / rel
+        after_path = Path(self._safe_join(base, rel))
+        before = None
+        after = None
+        try:
+            if before_path.is_file():
+                before = before_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            before = None
+        try:
+            if after_path.is_file():
+                after = after_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            after = None
+        kind = "modified"
+        if before is None and after is not None:
+            kind = "added"
+        elif before is not None and after is None:
+            kind = "deleted"
+        elif before == after:
+            kind = "same"
+        return {
+            "ok": True,
+            "snapshotId": snap_id,
+            "path": rel,
+            "kind": kind,
+            "before": before,
+            "after": after,
+        }
+
+    def git_status(self) -> dict[str, Any]:
+        base = self._require_root()
+        if not (Path(base) / ".git").exists():
+            return {"ok": False, "error": "not a git repository", "files": []}
+        result = self.exec_cmd("git status --porcelain=v1 -uall && echo '---' && git rev-parse --abbrev-ref HEAD && git log -1 --oneline")
+        if not result.get("ok") and result.get("exitCode", 1) not in (0,):
+            # status may still print useful stdout
+            pass
+        out = (result.get("stdout") or "") + (result.get("stderr") or "")
+        parts = out.split("---", 1)
+        porcelain = parts[0]
+        meta = parts[1].strip().splitlines() if len(parts) > 1 else []
+        branch = meta[0].strip() if meta else ""
+        head = meta[1].strip() if len(meta) > 1 else ""
+        files: list[dict[str, str]] = []
+        for line in porcelain.splitlines():
+            if len(line) < 4:
+                continue
+            code = line[:2]
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[-1]
+            kind = "modified"
+            if code.strip() == "??":
+                kind = "untracked"
+            elif code[0] == "A" or code[1] == "A":
+                kind = "added"
+            elif code[0] == "D" or code[1] == "D":
+                kind = "deleted"
+            elif "R" in code:
+                kind = "renamed"
+            files.append({"path": path.replace("\\", "/"), "kind": kind, "code": code})
+        return {
+            "ok": True,
+            "branch": branch,
+            "head": head,
+            "files": files,
+            "clean": len(files) == 0,
+        }
+
+    def git_diff(self, rel_path: str = "") -> dict[str, Any]:
+        base = self._require_root()
+        if not (Path(base) / ".git").exists():
+            return {"ok": False, "error": "not a git repository"}
+        path = rel_path.replace("\\", "/").lstrip("/")
+        if path:
+            # validate path stays in workspace
+            self._safe_join(base, path)
+            cmd = f"git diff --no-color -- {path!s} ; git diff --no-color --cached -- {path!s}"
+        else:
+            cmd = "git diff --no-color ; git diff --no-color --cached"
+        result = self.exec_cmd(cmd)
+        text = (result.get("stdout") or "")[:200_000]
+        return {"ok": True, "path": path, "diff": text}
+
+    def git_commit(self, message: str) -> dict[str, Any]:
+        base = self._require_root()
+        if not (Path(base) / ".git").exists():
+            return {"ok": False, "error": "not a git repository"}
+        msg = (message or "").strip()
+        if not msg:
+            return {"ok": False, "error": "empty commit message"}
+        # Escape for shell single quotes
+        safe = msg.replace("'", "'\\''")
+        add = self.exec_cmd("git add -A")
+        if not add.get("ok") and add.get("exitCode", 1) != 0:
+            return {"ok": False, "error": add.get("stderr") or add.get("error") or "git add failed"}
+        commit = self.exec_cmd(f"git commit -m '{safe}'")
+        if not commit.get("ok"):
+            err = (commit.get("stderr") or commit.get("stdout") or commit.get("error") or "commit failed")
+            return {"ok": False, "error": err.strip()[:500]}
+        return {"ok": True, "message": msg, "stdout": (commit.get("stdout") or "")[:500]}
+
     def _snap_dir(self, workspace_root: str, snap_id: str) -> Path:
         sid = (snap_id or "").strip()
         if not re.fullmatch(r"snap-[a-f0-9]{12}", sid):
@@ -561,6 +675,23 @@ def handle_workspace(store: WorkspaceStore, method: str, path: str, body: bytes 
         if path == "/api/workspace/snapshot/forget" and method == "POST":
             data = json.loads(body.decode("utf-8") if body else "{}")
             return 200, json_response(store.snapshot_forget(str(data.get("id", ""))))
+        if path.startswith("/api/workspace/snapshot/file-diff") and method == "GET":
+            from urllib.parse import parse_qs, urlparse
+
+            qs = parse_qs(urlparse(path).query)
+            return 200, json_response(
+                store.snapshot_file_diff(str(qs.get("id", [""])[0]), str(qs.get("path", [""])[0]))
+            )
+        if path == "/api/workspace/git/status" and method == "GET":
+            return 200, json_response(store.git_status())
+        if path.startswith("/api/workspace/git/diff") and method == "GET":
+            from urllib.parse import parse_qs, urlparse
+
+            qs = parse_qs(urlparse(path).query)
+            return 200, json_response(store.git_diff(str(qs.get("path", [""])[0])))
+        if path == "/api/workspace/git/commit" and method == "POST":
+            data = json.loads(body.decode("utf-8") if body else "{}")
+            return 200, json_response(store.git_commit(str(data.get("message", ""))))
     except ValueError as error:
         return 400, json_response({"ok": False, "error": str(error)})
     except json.JSONDecodeError:

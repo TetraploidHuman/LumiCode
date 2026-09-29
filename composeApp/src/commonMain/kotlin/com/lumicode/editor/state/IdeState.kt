@@ -1022,10 +1022,17 @@ class IdeState(initialFiles: List<CodeFile> = emptyList()) {
         return ok
     }
 
-    /** 取消任务：先按快照回滚磁盘，再停任务。 */
+    /** 取消任务：先通知 bridge 停 DSH，再按快照回滚磁盘，再停任务。 */
     suspend fun leaveItAndRestore(taskId: String? = collab.selectedTaskId): Boolean {
         val id = taskId ?: return false
         val task = collab.tasks.firstOrNull { it.id == id } ?: return false
+        val jobId = collab.dshJobFor(id)
+        val sessionId = collab.dshSessionForTask(id)
+        if (jobId != null || sessionId != null) {
+            runCatching {
+                com.lumicode.editor.dsh.DshApi.cancel(sessionId = sessionId, jobId = jobId)
+            }
+        }
         val snap = task.snapshotId
         var restored = false
         if (!snap.isNullOrBlank()) {
@@ -1046,6 +1053,20 @@ class IdeState(initialFiles: List<CodeFile> = emptyList()) {
         collab.leaveIt(id)
         statusMessage = if (restored) "已取消并回滚磁盘" else "已取消任务"
         return restored || snap.isNullOrBlank()
+    }
+
+    /** 批准当前危险工具（写盘 / bash）；bridge 会重开 turn。 */
+    suspend fun approvePendingTool(): Boolean {
+        val pending = collab.pendingToolApproval ?: return false
+        val ok = com.lumicode.editor.dsh.DshApi.approve(pending.jobId, pending.callId)
+        if (ok) {
+            collab.clearPendingApproval(pending.taskId)
+            collab.appendAgent("上级批准工具 · ${pending.toolName}", LineKind.OK)
+            statusMessage = "已批准 · ${pending.toolName}"
+        } else {
+            statusMessage = "批准失败 · 任务可能已结束"
+        }
+        return ok
     }
 
     /** 重跑：先回滚到任务前快照，再派 DSH（新快照会在下次派发时拍）。 */

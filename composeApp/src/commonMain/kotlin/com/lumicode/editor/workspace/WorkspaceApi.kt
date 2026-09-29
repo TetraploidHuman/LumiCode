@@ -78,6 +78,45 @@ data class WorkspaceRestoreResult(
     val error: String? = null,
 )
 
+data class WorkspaceFileDiffResult(
+    val ok: Boolean,
+    val snapshotId: String? = null,
+    val path: String? = null,
+    val kind: String? = null,
+    val before: String? = null,
+    val after: String? = null,
+    val error: String? = null,
+)
+
+data class GitFileEntry(
+    val path: String,
+    val kind: String,
+    val code: String = "",
+)
+
+data class GitStatusResult(
+    val ok: Boolean,
+    val branch: String = "",
+    val head: String = "",
+    val files: List<GitFileEntry> = emptyList(),
+    val clean: Boolean = false,
+    val error: String? = null,
+)
+
+data class GitDiffResult(
+    val ok: Boolean,
+    val path: String = "",
+    val diff: String = "",
+    val error: String? = null,
+)
+
+data class GitCommitResult(
+    val ok: Boolean,
+    val message: String? = null,
+    val stdout: String = "",
+    val error: String? = null,
+)
+
 interface WorkspaceBackend {
     suspend fun status(): WorkspaceStatus
     suspend fun openRoot(path: String): WorkspaceStatus
@@ -96,6 +135,10 @@ interface WorkspaceBackend {
     suspend fun diffSnapshot(snapshotId: String): WorkspaceDiffResult
     suspend fun restoreSnapshot(snapshotId: String): WorkspaceRestoreResult
     suspend fun forgetSnapshot(snapshotId: String): WorkspaceOp
+    suspend fun fileDiff(snapshotId: String, relPath: String): WorkspaceFileDiffResult
+    suspend fun gitStatus(): GitStatusResult
+    suspend fun gitDiff(relPath: String = ""): GitDiffResult
+    suspend fun gitCommit(message: String): GitCommitResult
 }
 
 object WorkspaceApi {
@@ -152,6 +195,19 @@ object WorkspaceApi {
 
     suspend fun forgetSnapshot(snapshotId: String): WorkspaceOp =
         backend?.forgetSnapshot(snapshotId) ?: WorkspaceOp(ok = false, error = "工作区后端未安装")
+
+    suspend fun fileDiff(snapshotId: String, relPath: String): WorkspaceFileDiffResult =
+        backend?.fileDiff(snapshotId, relPath)
+            ?: WorkspaceFileDiffResult(ok = false, error = "工作区后端未安装")
+
+    suspend fun gitStatus(): GitStatusResult =
+        backend?.gitStatus() ?: GitStatusResult(ok = false, error = "工作区后端未安装")
+
+    suspend fun gitDiff(relPath: String = ""): GitDiffResult =
+        backend?.gitDiff(relPath) ?: GitDiffResult(ok = false, error = "工作区后端未安装")
+
+    suspend fun gitCommit(message: String): GitCommitResult =
+        backend?.gitCommit(message) ?: GitCommitResult(ok = false, error = "工作区后端未安装")
 }
 
 fun parseWorkspaceStatus(raw: String): WorkspaceStatus =
@@ -249,5 +305,56 @@ fun parseWorkspaceRestore(raw: String): WorkspaceRestoreResult =
         snapshotId = raw.stringField("snapshotId"),
         restored = raw.intField("restored") ?: 0,
         deleted = raw.intField("deleted") ?: 0,
+        error = raw.stringField("error"),
+    )
+
+fun parseWorkspaceFileDiff(raw: String): WorkspaceFileDiffResult =
+    WorkspaceFileDiffResult(
+        ok = raw.boolField("ok"),
+        snapshotId = raw.stringField("snapshotId"),
+        path = raw.stringField("path"),
+        kind = raw.stringField("kind"),
+        before = raw.stringField("before"),
+        after = raw.stringField("after"),
+        error = raw.stringField("error"),
+    )
+
+fun parseGitStatus(raw: String): GitStatusResult {
+    if (!raw.boolField("ok")) {
+        return GitStatusResult(ok = false, error = raw.stringField("error"))
+    }
+    val files = mutableListOf<GitFileEntry>()
+    val block = Regex(""""files"\s*:\s*\[(.*)]""", RegexOption.DOT_MATCHES_ALL)
+        .find(raw)?.groupValues?.getOrNull(1).orEmpty()
+    for (obj in block.jsonObjectSlices()) {
+        val path = obj.stringField("path") ?: continue
+        files += GitFileEntry(
+            path = path,
+            kind = obj.stringField("kind").orEmpty(),
+            code = obj.stringField("code").orEmpty(),
+        )
+    }
+    return GitStatusResult(
+        ok = true,
+        branch = raw.stringField("branch").orEmpty(),
+        head = raw.stringField("head").orEmpty(),
+        files = files,
+        clean = raw.boolField("clean"),
+    )
+}
+
+fun parseGitDiff(raw: String): GitDiffResult =
+    GitDiffResult(
+        ok = raw.boolField("ok"),
+        path = raw.stringField("path").orEmpty(),
+        diff = raw.stringField("diff").orEmpty(),
+        error = raw.stringField("error"),
+    )
+
+fun parseGitCommit(raw: String): GitCommitResult =
+    GitCommitResult(
+        ok = raw.boolField("ok"),
+        message = raw.stringField("message"),
+        stdout = raw.stringField("stdout").orEmpty(),
         error = raw.stringField("error"),
     )

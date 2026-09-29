@@ -42,45 +42,53 @@ class WasmDshBackend : DshBackend {
         title: String?,
         cwd: String?,
         jobId: String?,
+        requireToolApproval: Boolean,
+        writeScopes: List<String>,
     ): DshChatResult {
-        val body = buildChatBody(text, sessionId, title, cwd, jobId)
+        val body = buildDshChatBody(
+            text, sessionId, title, cwd, jobId, requireToolApproval, writeScopes,
+        )
         return parseDshChat(fetchTextJs("$BASE/v1/chat", body).awaitText())
     }
 
     override suspend fun progress(jobId: String): DshProgress =
         parseDshProgress(fetchTextJs("$BASE/v1/progress/${encodeURIComponent(jobId)}", null).awaitText())
 
+    override suspend fun cancel(sessionId: String?, jobId: String?): DshCancelResult {
+        val body = buildString {
+            append('{')
+            var first = true
+            if (!sessionId.isNullOrBlank()) {
+                append("\"sessionId\":")
+                append(jsonString(sessionId))
+                first = false
+            }
+            if (!jobId.isNullOrBlank()) {
+                if (!first) append(',')
+                append("\"jobId\":")
+                append(jsonString(jobId))
+            }
+            append('}')
+        }
+        return parseDshCancel(fetchTextJs("$BASE/v1/cancel", body).awaitText())
+    }
+
+    override suspend fun approve(jobId: String, callId: String?): Boolean {
+        val body = buildString {
+            append("{\"jobId\":")
+            append(jsonString(jobId))
+            if (!callId.isNullOrBlank()) {
+                append(",\"callId\":")
+                append(jsonString(callId))
+            }
+            append('}')
+        }
+        return fetchTextJs("$BASE/v1/approve", body).awaitText().contains("\"ok\":true")
+    }
+
     private companion object {
         val BASE: String get() = "${appBasePath()}/api/dsh"
     }
-}
-
-private fun buildChatBody(
-    text: String,
-    sessionId: String?,
-    title: String?,
-    cwd: String?,
-    jobId: String?,
-): String = buildString {
-    append("{\"text\":")
-    append(jsonString(text))
-    if (!sessionId.isNullOrBlank()) {
-        append(",\"sessionId\":")
-        append(jsonString(sessionId))
-    }
-    if (!title.isNullOrBlank()) {
-        append(",\"title\":")
-        append(jsonString(title))
-    }
-    if (!cwd.isNullOrBlank()) {
-        append(",\"cwd\":")
-        append(jsonString(cwd))
-    }
-    if (!jobId.isNullOrBlank()) {
-        append(",\"jobId\":")
-        append(jsonString(jobId))
-    }
-    append('}')
 }
 
 @JsFun("(s) => encodeURIComponent(s)")

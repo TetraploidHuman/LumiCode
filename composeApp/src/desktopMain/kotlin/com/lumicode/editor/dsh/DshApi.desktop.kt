@@ -25,34 +25,51 @@ class DesktopDshBackend(
         title: String?,
         cwd: String?,
         jobId: String?,
+        requireToolApproval: Boolean,
+        writeScopes: List<String>,
     ): DshChatResult {
-        val body = buildString {
-            append("{\"text\":")
-            append(jsonString(text))
-            if (!sessionId.isNullOrBlank()) {
-                append(",\"sessionId\":")
-                append(jsonString(sessionId))
-            }
-            if (!title.isNullOrBlank()) {
-                append(",\"title\":")
-                append(jsonString(title))
-            }
-            if (!cwd.isNullOrBlank()) {
-                append(",\"cwd\":")
-                append(jsonString(cwd))
-            }
-            if (!jobId.isNullOrBlank()) {
-                append(",\"jobId\":")
-                append(jsonString(jobId))
-            }
-            append('}')
-        }
-        return parseDshChat(post("$base/v1/chat", body))
+        val body = buildDshChatBody(
+            text, sessionId, title, cwd, jobId, requireToolApproval, writeScopes,
+        )
+        return parseDshChat(post("$base/v1/chat", body, timeoutSec = 320))
     }
 
     override suspend fun progress(jobId: String): DshProgress {
         val enc = URLEncoder.encode(jobId, StandardCharsets.UTF_8)
         return parseDshProgress(get("$base/v1/progress/$enc"))
+    }
+
+    override suspend fun cancel(sessionId: String?, jobId: String?): DshCancelResult {
+        val body = buildString {
+            append('{')
+            var first = true
+            if (!sessionId.isNullOrBlank()) {
+                append("\"sessionId\":")
+                append(jsonString(sessionId))
+                first = false
+            }
+            if (!jobId.isNullOrBlank()) {
+                if (!first) append(',')
+                append("\"jobId\":")
+                append(jsonString(jobId))
+            }
+            append('}')
+        }
+        return parseDshCancel(post("$base/v1/cancel", body, timeoutSec = 30))
+    }
+
+    override suspend fun approve(jobId: String, callId: String?): Boolean {
+        val body = buildString {
+            append("{\"jobId\":")
+            append(jsonString(jobId))
+            if (!callId.isNullOrBlank()) {
+                append(",\"callId\":")
+                append(jsonString(callId))
+            }
+            append('}')
+        }
+        val raw = post("$base/v1/approve", body, timeoutSec = 30)
+        return raw.contains("\"ok\":true")
     }
 
     private fun get(url: String): String {
@@ -63,9 +80,9 @@ class DesktopDshBackend(
         return client.send(request, HttpResponse.BodyHandlers.ofString()).body()
     }
 
-    private fun post(url: String, body: String): String {
+    private fun post(url: String, body: String, timeoutSec: Long): String {
         val request = HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(320))
+            .timeout(Duration.ofSeconds(timeoutSec))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()

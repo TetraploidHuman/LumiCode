@@ -103,6 +103,8 @@ class DshHostClient(
      * Create a session (or reuse), select model, prompt, poll until a turn response.
      * [cwd] is the absolute project directory for DSH filesystem tools.
      * When [jobId] is set, tool/think steps are published to [ChatProgress] for live polling.
+     * [requireToolApproval] pauses on write/edit/bash until the client approves or cancels.
+     * [writeScopes] optional path prefixes; tools outside scopes trigger cancel.
      */
     suspend fun chat(
         text: String,
@@ -110,6 +112,8 @@ class DshHostClient(
         titleHint: String? = null,
         cwd: String? = null,
         jobId: String? = null,
+        requireToolApproval: Boolean = false,
+        writeScopes: List<String> = emptyList(),
     ): ChatResult {
         if (!ensureAuth()) {
             return ChatResult(ok = false, error = lastError ?: "unauthorized")
@@ -125,6 +129,7 @@ class DshHostClient(
         return try {
             val sid = sessionId?.takeIf { it.isNotBlank() }
                 ?: createSession(cwd = projectCwd)
+            if (progressKey != null) ChatProgress.bindSession(progressKey, sid)
             selectModel(sid)
             if (!titleHint.isNullOrBlank()) {
                 runCatching { rename(sid, titleHint.take(48)) }
@@ -132,33 +137,83 @@ class DshHostClient(
             val requestId = "req-" + UUID.randomUUID()
             prompt(sid, requestId, promptText)
             val steps = mutableListOf<TraceStep>()
-            val reply = waitForReply(sid, promptText, timeoutMs = 300_000) { step ->
+            val reply = waitForReply(
+                sessionId = sid,
+                promptText = promptText,
+                timeoutMs = 300_000,
+                jobId = progressKey,
+                requireToolApproval = requireToolApproval,
+                writeScopes = writeScopes,
+            ) { step ->
                 steps += step
                 if (progressKey != null) ChatProgress.append(progressKey, step)
             }
             if (progressKey != null) ChatProgress.finish(progressKey)
-            if (reply == null) {
-                ChatResult(
-                    ok = false,
-                    sessionId = sid,
-                    error = "timed out waiting for DSH reply",
-                    steps = steps,
-                )
-            } else {
-                ChatResult(
-                    ok = true,
-                    sessionId = sid,
-                    reply = reply,
-                    provider = provider,
-                    model = model,
-                    steps = steps,
-                )
+            when {
+                progressKey != null && ChatProgress.isCancelled(progressKey) ->
+                    ChatResult(
+                        ok = false,
+                        sessionId = sid,
+                        error = "cancelled",
+                        steps = steps,
+                        cancelled = true,
+                    )
+                reply == null ->
+                    ChatResult(
+                        ok = false,
+                        sessionId = sid,
+                        error = "timed out waiting for DSH reply",
+                        steps = steps,
+                    )
+                else ->
+                    ChatResult(
+                        ok = true,
+                        sessionId = sid,
+                        reply = reply,
+                        provider = provider,
+                        model = model,
+                        steps = steps,
+                    )
             }
         } catch (t: Throwable) {
             lastError = t.message
             if (progressKey != null) ChatProgress.finish(progressKey)
             ChatResult(ok = false, error = t.message ?: "dsh error")
         }
+    }
+
+    /** Ask DSH to cancel the active turn; also marks the bridge job cancelled. */
+    suspend fun cancel(sessionId: String? = null, jobId: String? = null): CancelResult {
+        val sid = sessionId?.takeIf { it.isNotBlank() }
+            ?: jobId?.let { ChatProgress.snapshot(it).sessionId }
+        val jid = jobId?.takeIf { it.isNotBlank() }
+            ?: sid?.let { ChatProgress.requestCancelBySession(it) }
+        if (!jid.isNullOrBlank()) ChatProgress.requestCancel(jid)
+        if (sid.isNullOrBlank()) {
+            return CancelResult(ok = false, error = "missing sessionId/jobId")
+        }
+        if (!ensureAuth()) {
+            return CancelResult(ok = false, sessionId = sid, error = lastError ?: "unauthorized")
+        }
+        return try {
+            rpc(
+                "session/cancel",
+                buildJsonObject {
+                    putJsonObject("request") {
+                        put("sessionId", sid)
+                    }
+                },
+            )
+            CancelResult(ok = true, sessionId = sid, jobId = jid)
+        } catch (t: Throwable) {
+            CancelResult(ok = false, sessionId = sid, jobId = jid, error = t.message)
+        }
+    }
+
+    fun approveTool(jobId: String, callId: String?): Boolean {
+        if (jobId.isBlank()) return false
+        ChatProgress.approve(jobId, callId)
+        return true
     }
 
     private suspend fun createSession(cwd: String? = null): String {
@@ -230,12 +285,24 @@ class DshHostClient(
         sessionId: String,
         promptText: String,
         timeoutMs: Long = 120_000,
+        jobId: String?,
+        requireToolApproval: Boolean,
+        writeScopes: List<String>,
         onStep: (TraceStep) -> Unit,
     ): String? {
         val deadline = System.currentTimeMillis() + timeoutMs
         var lastSeq = -1
         val seen = HashSet<String>()
         while (System.currentTimeMillis() < deadline) {
+            if (jobId != null && ChatProgress.isCancelled(jobId)) {
+                runCatching { cancelSessionQuiet(sessionId) }
+                return null
+            }
+            // Block while supervisor reviews a dangerous tool.
+            if (jobId != null && ChatProgress.isAwaitingApproval(jobId)) {
+                delay(300)
+                continue
+            }
             val proj = rpc(
                 "session/projections",
                 buildJsonObject {
@@ -248,11 +315,24 @@ class DshHostClient(
             val asOf = baseline?.get("asOfSeq")?.jsonPrimitive?.intOrNull
             if (asOf != null && asOf > lastSeq) {
                 try {
-                    drainTrace(sessionId, throughSeq = asOf, afterSeq = lastSeq, seen = seen, onStep = onStep)
+                    drainTrace(
+                        sessionId = sessionId,
+                        throughSeq = asOf,
+                        afterSeq = lastSeq,
+                        seen = seen,
+                        jobId = jobId,
+                        requireToolApproval = requireToolApproval,
+                        writeScopes = writeScopes,
+                        onStep = onStep,
+                    )
                 } catch (t: Throwable) {
                     System.err.println("dsh-bridge: drainTrace failed seq=$lastSeq..$asOf: ${t.message}")
                 }
                 lastSeq = asOf
+            }
+            if (jobId != null && ChatProgress.isCancelled(jobId)) {
+                runCatching { cancelSessionQuiet(sessionId) }
+                return null
             }
             val values = baseline?.get("values")?.jsonObject
             val outline = values?.get("turnOutline")?.jsonArray
@@ -263,14 +343,26 @@ class DshHostClient(
                     val response = turn["response"]?.jsonPrimitive?.contentOrNull
                     if (!response.isNullOrBlank()) {
                         if (prompt.contains(promptText.take(24)) || i == outline.size - 1) {
+                            if (jobId != null) ChatProgress.setPartialReply(jobId, response)
                             return response
                         }
                     }
                 }
             }
-            delay(500)
+            delay(400)
         }
         return null
+    }
+
+    private suspend fun cancelSessionQuiet(sessionId: String) {
+        rpc(
+            "session/cancel",
+            buildJsonObject {
+                putJsonObject("request") {
+                    put("sessionId", sessionId)
+                }
+            },
+        )
     }
 
     /** Pull durable session events up to [throughSeq] and emit new tool/think/say steps. */
@@ -279,6 +371,9 @@ class DshHostClient(
         throughSeq: Int,
         afterSeq: Int,
         seen: MutableSet<String>,
+        jobId: String?,
+        requireToolApproval: Boolean,
+        writeScopes: List<String>,
         onStep: (TraceStep) -> Unit,
     ) {
         val page = rpc(
@@ -302,14 +397,29 @@ class DshHostClient(
         }.sortedBy { it.first }
         for ((seq, event) in events) {
             if (seq <= afterSeq) continue
-            emitTraceFromEvent(seq, event, seen, onStep)
+            emitTraceFromEvent(
+                seq = seq,
+                event = event,
+                seen = seen,
+                jobId = jobId,
+                requireToolApproval = requireToolApproval,
+                writeScopes = writeScopes,
+                sessionId = sessionId,
+                onStep = onStep,
+            )
+            if (jobId != null && ChatProgress.isCancelled(jobId)) return
+            if (jobId != null && ChatProgress.isAwaitingApproval(jobId)) return
         }
     }
 
-    private fun emitTraceFromEvent(
+    private suspend fun emitTraceFromEvent(
         seq: Int,
         event: JsonObject,
         seen: MutableSet<String>,
+        jobId: String?,
+        requireToolApproval: Boolean,
+        writeScopes: List<String>,
+        sessionId: String,
         onStep: (TraceStep) -> Unit,
     ) {
         val type = event["type"]?.jsonPrimitive?.contentOrNull ?: return
@@ -319,6 +429,7 @@ class DshHostClient(
                 if (!seen.add("tc:$seq")) return
                 val name = data["name"]?.jsonPrimitive?.contentOrNull ?: "tool"
                 val args = data["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                val callId = data["callId"]?.jsonPrimitive?.contentOrNull
                 onStep(
                     TraceStep(
                         kind = "tool",
@@ -327,6 +438,46 @@ class DshHostClient(
                         seq = seq,
                     ),
                 )
+                val dangerous = name in DANGEROUS_TOOLS
+                val path = extractToolPath(args)
+                val outOfScope = writeScopes.isNotEmpty() && path != null &&
+                    writeScopes.none { scope -> pathBelongsToScope(path, scope) }
+                if (outOfScope) {
+                    onStep(
+                        TraceStep(
+                            kind = "approval",
+                            name = "scope-violation",
+                            text = "工具路径越界 · $path ∉ ${writeScopes.joinToString()}",
+                            seq = seq,
+                        ),
+                    )
+                    if (jobId != null) ChatProgress.requestCancel(jobId)
+                    runCatching { cancelSessionQuiet(sessionId) }
+                    return
+                }
+                if (dangerous && requireToolApproval && jobId != null &&
+                    !ChatProgress.isCallApproved(jobId, callId)
+                ) {
+                    // Tool may already be executing on DSH; cancel turn and ask supervisor.
+                    ChatProgress.setPendingApproval(
+                        jobId,
+                        PendingApproval(
+                            id = callId ?: "seq-$seq",
+                            toolName = name,
+                            argsPreview = compactToolArgs(args),
+                            callId = callId,
+                        ),
+                    )
+                    onStep(
+                        TraceStep(
+                            kind = "approval",
+                            name = name,
+                            text = "等待上级批准 · ${compactToolArgs(args)}",
+                            seq = seq,
+                        ),
+                    )
+                    runCatching { cancelSessionQuiet(sessionId) }
+                }
             }
             "tool/result" -> {
                 if (!seen.add("tr:$seq")) return
@@ -361,9 +512,11 @@ class DshHostClient(
                         }
                         "text" -> {
                             if (text.isBlank() || !seen.add("t:$seq:$index")) return@forEachIndexed
-                            // Mid-turn narration before tools ≈ thinking; final text-only ≈ say.
                             val kind = if (hasToolCall) "think" else "say"
                             onStep(TraceStep(kind = kind, text = text.take(900), seq = seq))
+                            if (kind == "say" && jobId != null) {
+                                ChatProgress.setPartialReply(jobId, text)
+                            }
                         }
                     }
                 }
@@ -452,6 +605,10 @@ data class ChatRequest(
     val cwd: String? = null,
     /** Client-generated id so Squad can poll /v1/progress/{jobId} while chat runs. */
     val jobId: String? = null,
+    /** Pause (cancel turn) on write/edit/bash until /v1/approve. */
+    val requireToolApproval: Boolean = false,
+    /** Relative path prefixes the agent may write; violations cancel the turn. */
+    val writeScopes: List<String> = emptyList(),
 )
 
 @Serializable
@@ -463,11 +620,47 @@ data class ChatResult(
     val model: String? = null,
     val error: String? = null,
     val steps: List<TraceStep> = emptyList(),
+    val cancelled: Boolean = false,
 )
+
+@Serializable
+data class CancelRequest(
+    val sessionId: String? = null,
+    val jobId: String? = null,
+)
+
+@Serializable
+data class CancelResult(
+    val ok: Boolean,
+    val sessionId: String? = null,
+    val jobId: String? = null,
+    val error: String? = null,
+)
+
+@Serializable
+data class ApproveRequest(
+    val jobId: String,
+    val callId: String? = null,
+)
+
+private val DANGEROUS_TOOLS = setOf("write", "edit", "bash", "str_replace_editor")
 
 private fun compactToolArgs(raw: String): String {
     val oneLine = raw.replace(Regex("\\s+"), " ").trim()
     return oneLine.take(420)
+}
+
+private fun extractToolPath(argsJson: String): String? {
+    val m = Regex(""""(?:file_path|path)"\s*:\s*"((?:\\.|[^"\\])*)"""").find(argsJson)
+        ?: return null
+    return m.groupValues[1].replace("\\/", "/").replace("\\\\", "\\")
+}
+
+private fun pathBelongsToScope(path: String, scope: String): Boolean {
+    val p = path.replace('\\', '/').trimStart('/')
+    val s = scope.replace('\\', '/').trim().trim('/')
+    if (s.isEmpty()) return true
+    return p == s || p.startsWith("$s/") || p.endsWith("/$s") || p.contains("/$s/")
 }
 
 private fun contentBlocksText(content: JsonElement?): String {

@@ -63,9 +63,29 @@ class DshApiParseTest {
     }
 
     @Test
-    fun jobIdShape() {
-        val id = newDshJobId()
-        assertTrue(id.startsWith("job-"))
-        assertEquals(20, id.length)
+    fun parseProgressWithApprovalAndPartial() {
+        val raw = """
+            {
+              "jobId":"job-2",
+              "done":false,
+              "cancelled":false,
+              "partialReply":"hello",
+              "pendingApproval":{"id":"a1","toolName":"write","argsPreview":"path=A.kt","callId":"c1"},
+              "steps":[]
+            }
+        """.trimIndent()
+        val p = parseDshProgress(raw)
+        assertEquals("job-2", p.jobId)
+        assertEquals("hello", p.partialReply)
+        assertEquals("write", p.pendingApproval?.toolName)
+        assertEquals("c1", p.pendingApproval?.callId)
+        assertFalse(p.cancelled)
+    }
+
+    @Test
+    fun parseChatCancelled() {
+        val chat = parseDshChat("""{"ok":false,"cancelled":true,"error":"cancelled","steps":[]}""")
+        assertTrue(chat.cancelled)
+        assertFalse(chat.ok)
     }
 }

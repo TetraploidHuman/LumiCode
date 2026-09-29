@@ -96,6 +96,15 @@ data class KnownFact(
     val detail: String = "",
 )
 
+/** Live dangerous-tool approval request from the DSH bridge. */
+data class PendingToolApproval(
+    val taskId: String,
+    val jobId: String,
+    val toolName: String,
+    val argsPreview: String,
+    val callId: String? = null,
+)
+
 /** 用户理解程度：影响汇报措辞深浅。 */
 enum class UnderstandingLevel {
     BEGINNER,
@@ -209,13 +218,24 @@ class CollabState {
     /** 经 lumicode-dsh-bridge 连到本机已运行的 dsh-web。 */
     var dshLinked by mutableStateOf(false)
     var dshModelLabel by mutableStateOf<String?>(null)
+    /** True while any DSH job is in flight. */
     var dshBusy by mutableStateOf(false)
-    var dshRequestToken by mutableStateOf(0)
+    /** Monotonic token bumped when a new task is queued for DSH (triggers dispatcher). */
+    var dshDispatchToken by mutableStateOf(0)
         private set
-    var pendingDshTaskId by mutableStateOf<String?>(null)
-        private set
+    /** Task ids waiting to be started (concurrent-safe queue). */
+    val dshDispatchQueue = mutableStateListOf<String>()
+    /** taskId → in-flight bridge jobId */
+    private val dshJobByTask = mutableStateMapOf<String, String>()
+    /** taskId → sessionId while running */
+    private val dshSessionByTask = mutableStateMapOf<String, String>()
+    private val activeDshTasks = mutableStateListOf<String>()
     private val dshSessionByAgent = mutableMapOf<String, String>()
     private var dshSupervisorNote: String? = null
+    /** Ask before write/edit/bash (bridge cancels turn until approve). */
+    var requireToolApproval by mutableStateOf(true)
+    /** Live tool approval prompt (from bridge progress). */
+    var pendingToolApproval by mutableStateOf<PendingToolApproval?>(null)
 
     private var agentSeq = 0
     private var taskSeq = 0
@@ -258,6 +278,7 @@ class CollabState {
         taskTitle: String,
         supervisorNote: String? = null,
         workspaceBlock: String? = null,
+        writeScopes: List<String> = emptyList(),
     ): String {
         val known = knownFacts.take(8).joinToString("\n") { "- ${it.label}：${it.detail}" }
         return buildString {
@@ -265,6 +286,11 @@ class CollabState {
             appendLine("任务：$taskTitle")
             appendLine("约束：$constraint")
             appendLine("用户理解口径：${understandingLevel.labelZh()}")
+            if (writeScopes.isNotEmpty()) {
+                appendLine()
+                appendLine("【硬性写盘范围】只允许改动下列相对路径前缀（越界即失败）：")
+                writeScopes.forEach { appendLine("- $it") }
+            }
             if (!workspaceBlock.isNullOrBlank()) {
                 appendLine()
                 appendLine("工作区摘要（真实磁盘；请用工具自行打开需要的文件，勿依赖本摘要代替读盘）：")
@@ -283,13 +309,84 @@ class CollabState {
         }
     }
 
-    fun clearDshSessions() {
-        dshSessionByAgent.clear()
+    fun writeScopesForTask(taskId: String): List<String> {
+        val task = tasks.firstOrNull { it.id == taskId } ?: return emptyList()
+        val board = task.boardTaskId?.let { bid -> boardTasks.firstOrNull { it.id == bid } }
+        return board?.writeScopes.orEmpty().filter { it.isNotBlank() }
+    }
+
+    fun isBoardReady(boardTaskId: String?): Boolean {
+        if (boardTaskId == null) return true
+        val board = boardTasks.firstOrNull { it.id == boardTaskId } ?: return true
+        if (board.blockedBy.isEmpty()) return true
+        val completed = boardTasks.filter { it.status == BoardTaskStatus.COMPLETED }.map { it.id }.toSet()
+        return board.blockedBy.all { it in completed }
     }
 
     private fun scheduleDshTask(taskId: String) {
-        pendingDshTaskId = taskId
-        dshRequestToken++
+        if (!isBoardReady(tasks.firstOrNull { it.id == taskId }?.boardTaskId)) {
+            journal(
+                tasks.firstOrNull { it.id == taskId }?.agentId ?: return,
+                "任务板未就绪 · 依赖尚未完成，暂缓派往 DSH",
+                LineKind.WARN,
+            )
+            updateTask(taskId) { it.copy(statusLine = "等待依赖") }
+            return
+        }
+        if (taskId !in dshDispatchQueue && taskId !in activeDshTasks) {
+            dshDispatchQueue.add(taskId)
+            dshDispatchToken++
+        }
+    }
+
+    fun takeNextDshDispatch(): String? {
+        if (dshDispatchQueue.isEmpty()) return null
+        val id = dshDispatchQueue.removeAt(0)
+        if (id !in activeDshTasks) activeDshTasks.add(id)
+        refreshDshBusy()
+        return id
+    }
+
+    fun bindDshJob(taskId: String, jobId: String, sessionId: String?) {
+        dshJobByTask[taskId] = jobId
+        if (!sessionId.isNullOrBlank()) {
+            dshSessionByTask[taskId] = sessionId
+            tasks.firstOrNull { it.id == taskId }?.agentId?.let { aid ->
+                dshSessionByAgent[aid] = sessionId
+            }
+        }
+    }
+
+    fun dshJobFor(taskId: String): String? = dshJobByTask[taskId]
+
+    fun dshSessionForTask(taskId: String): String? =
+        dshSessionByTask[taskId] ?: tasks.firstOrNull { it.id == taskId }?.let { dshSessionFor(it.agentId) }
+
+    fun updateTaskLiveStatus(taskId: String, line: String) {
+        updateTask(taskId) { t ->
+            if (t.status != TaskStatus.WORKING) t else t.copy(statusLine = line)
+        }
+        val agentId = tasks.firstOrNull { it.id == taskId }?.agentId ?: return
+        setWorker(agentId, taskId, line.take(40), phase = MemberPhase.ACTIVE)
+    }
+
+    fun finishDshDispatch(taskId: String) {
+        activeDshTasks.remove(taskId)
+        dshJobByTask.remove(taskId)
+        dshSessionByTask.remove(taskId)
+        refreshDshBusy()
+        // Kick any tasks that were waiting on board deps.
+        tasks.filter {
+            it.status == TaskStatus.WORKING &&
+                it.id !in activeDshTasks &&
+                it.id !in dshDispatchQueue &&
+                isBoardReady(it.boardTaskId) &&
+                it.statusLine.contains("等待依赖")
+        }.forEach { scheduleDshTask(it.id) }
+    }
+
+    private fun refreshDshBusy() {
+        dshBusy = activeDshTasks.isNotEmpty() || dshDispatchQueue.isNotEmpty()
     }
 
     fun completeDshTask(
@@ -343,7 +440,8 @@ class CollabState {
             journal(agentId, "改动记录 · ${formatChangedFiles(changedFiles)}", LineKind.WARN)
         }
         teamNote("$agent DSH 完成 · ${changedFiles.size} 处改动", LineKind.WARN)
-        pendingDshTaskId = null
+        finishDshDispatch(taskId)
+        if (pendingToolApproval?.taskId == taskId) pendingToolApproval = null
     }
 
     fun bindTaskSnapshot(taskId: String, snapshotId: String?) {
@@ -352,6 +450,29 @@ class CollabState {
 
     fun clearTaskSnapshot(taskId: String) {
         updateTask(taskId) { it.copy(snapshotId = null, changedFiles = emptyList()) }
+    }
+
+    fun clearDshSessions() {
+        dshSessionByAgent.clear()
+        dshSessionByTask.clear()
+    }
+
+    /** Soft-cancel request: IdeState/Effects call bridge cancel then restore. */
+    fun requestCancelDsh(taskId: String): String? {
+        val jobId = dshJobByTask[taskId]
+        dshDispatchQueue.removeAll { it == taskId }
+        if (pendingToolApproval?.taskId == taskId) pendingToolApproval = null
+        return jobId
+    }
+
+    fun setPendingApproval(approval: PendingToolApproval?) {
+        pendingToolApproval = approval
+    }
+
+    fun clearPendingApproval(taskId: String? = null) {
+        if (taskId == null || pendingToolApproval?.taskId == taskId) {
+            pendingToolApproval = null
+        }
     }
 
     /** Live DSH tool/think/say lines into this agent's work log (like DSH rail). */
@@ -387,7 +508,8 @@ class CollabState {
             it.copy(status = TaskStatus.STOPPED, statusLine = "DSH 失败")
         }
         setWorker(task.agentId, null, "DSH 失败 · $error", phase = MemberPhase.FAILED)
-        pendingDshTaskId = null
+        finishDshDispatch(taskId)
+        if (pendingToolApproval?.taskId == taskId) pendingToolApproval = null
     }
 
     private fun kickTask(taskId: String, agentId: String, title: String) {
@@ -972,6 +1094,7 @@ class CollabState {
     fun leaveIt(taskId: String? = selectedTaskId) {
         val id = taskId ?: return
         val task = tasks.firstOrNull { it.id == id } ?: return
+        requestCancelDsh(id)
         push(task.agentName, "上级：取消这路", LineKind.MUTED)
         journal(task.agentId, "上级取消本路任务", LineKind.MUTED)
         updateTask(id) {
@@ -983,6 +1106,7 @@ class CollabState {
                 // snapshotId cleared by IdeState after restore
             )
         }
+        finishDshDispatch(id)
         // 取消任务但同伴仍可留着；若用户从卡片「遣散」再移除
         setWorker(task.agentId, null, "空闲 · 任务已取消")
         selectedTaskId = tasks.firstOrNull {
@@ -1022,6 +1146,13 @@ class CollabState {
     }
 
     fun stop() {
+        val running = activeDshTasks.toList() + dshDispatchQueue.toList()
+        dshDispatchQueue.clear()
+        running.distinct().forEach { tid ->
+            requestCancelDsh(tid)
+            finishDshDispatch(tid)
+        }
+        pendingToolApproval = null
         tasks.filter { it.status == TaskStatus.WORKING || it.status == TaskStatus.PROPOSAL }
             .toList()
             .forEach { t ->

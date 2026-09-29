@@ -304,6 +304,138 @@ class DesktopWorkspaceBackend : WorkspaceBackend {
         else WorkspaceOp(ok = false, error = "forget failed")
     }
 
+    override suspend fun fileDiff(snapshotId: String, relPath: String): WorkspaceFileDiffResult {
+        val base = root?.takeIf { it.isDirectory }
+            ?: return WorkspaceFileDiffResult(ok = false, error = "未打开工作区")
+        val snapRoot = try {
+            snapDir(base, snapshotId)
+        } catch (e: IllegalArgumentException) {
+            return WorkspaceFileDiffResult(ok = false, error = e.message)
+        }
+        if (!File(snapRoot, "manifest.json").isFile) {
+            return WorkspaceFileDiffResult(ok = false, error = "snapshot not found")
+        }
+        val rel = relPath.replace('\\', '/').trimStart('/')
+        val beforePath = File(File(snapRoot, "files"), rel)
+        val afterPath = try {
+            safeJoin(base, rel)
+        } catch (e: IllegalArgumentException) {
+            return WorkspaceFileDiffResult(ok = false, error = e.message)
+        }
+        val before = try {
+            if (beforePath.isFile) beforePath.readText(Charsets.UTF_8) else null
+        } catch (_: Exception) {
+            null
+        }
+        val after = try {
+            if (afterPath.isFile) afterPath.readText(Charsets.UTF_8) else null
+        } catch (_: Exception) {
+            null
+        }
+        val kind = when {
+            before == null && after != null -> "added"
+            before != null && after == null -> "deleted"
+            before == after -> "same"
+            else -> "modified"
+        }
+        return WorkspaceFileDiffResult(
+            ok = true,
+            snapshotId = snapshotId,
+            path = rel,
+            kind = kind,
+            before = before,
+            after = after,
+        )
+    }
+
+    override suspend fun gitStatus(): GitStatusResult {
+        val base = root?.takeIf { it.isDirectory }
+            ?: return GitStatusResult(ok = false, error = "未打开工作区")
+        if (!File(base, ".git").exists()) {
+            return GitStatusResult(ok = false, error = "not a git repository")
+        }
+        val result = exec(
+            "git status --porcelain=v1 -uall && echo '---' && git rev-parse --abbrev-ref HEAD && git log -1 --oneline",
+        )
+        val out = result.stdout + result.stderr
+        val parts = out.split("---", limit = 2)
+        val porcelain = parts[0]
+        val meta = if (parts.size > 1) parts[1].trim().lines() else emptyList()
+        val branch = meta.getOrNull(0)?.trim().orEmpty()
+        val head = meta.getOrNull(1)?.trim().orEmpty()
+        val files = mutableListOf<GitFileEntry>()
+        for (line in porcelain.lines()) {
+            if (line.length < 4) continue
+            val code = line.take(2)
+            var path = line.drop(3).trim()
+            if (" -> " in path) path = path.substringAfter(" -> ")
+            val kind = when {
+                code.trim() == "??" -> "untracked"
+                code[0] == 'A' || code.getOrNull(1) == 'A' -> "added"
+                code[0] == 'D' || code.getOrNull(1) == 'D' -> "deleted"
+                'R' in code -> "renamed"
+                else -> "modified"
+            }
+            files += GitFileEntry(path = path.replace('\\', '/'), kind = kind, code = code)
+        }
+        return GitStatusResult(
+            ok = true,
+            branch = branch,
+            head = head,
+            files = files,
+            clean = files.isEmpty(),
+        )
+    }
+
+    override suspend fun gitDiff(relPath: String): GitDiffResult {
+        val base = root?.takeIf { it.isDirectory }
+            ?: return GitDiffResult(ok = false, error = "未打开工作区")
+        if (!File(base, ".git").exists()) {
+            return GitDiffResult(ok = false, error = "not a git repository")
+        }
+        val path = relPath.replace('\\', '/').trimStart('/')
+        if (path.isNotEmpty()) {
+            try {
+                safeJoin(base, path)
+            } catch (e: IllegalArgumentException) {
+                return GitDiffResult(ok = false, error = e.message)
+            }
+        }
+        val cmd = if (path.isEmpty()) {
+            "git diff --no-color ; git diff --no-color --cached"
+        } else {
+            "git diff --no-color -- $path ; git diff --no-color --cached -- $path"
+        }
+        val result = exec(cmd)
+        return GitDiffResult(
+            ok = true,
+            path = path,
+            diff = (result.stdout + result.stderr).take(400_000),
+        )
+    }
+
+    override suspend fun gitCommit(message: String): GitCommitResult {
+        val msg = message.trim()
+        if (msg.isEmpty()) return GitCommitResult(ok = false, error = "empty commit message")
+        val base = root?.takeIf { it.isDirectory }
+            ?: return GitCommitResult(ok = false, error = "未打开工作区")
+        if (!File(base, ".git").exists()) {
+            return GitCommitResult(ok = false, error = "not a git repository")
+        }
+        val add = exec("git add -A")
+        if (!add.ok) {
+            return GitCommitResult(ok = false, error = add.stderr.ifBlank { add.error ?: "git add failed" })
+        }
+        val escaped = msg.replace("'", "'\\''")
+        val commit = exec("git commit -m '$escaped'")
+        return GitCommitResult(
+            ok = commit.ok,
+            message = msg,
+            stdout = commit.stdout,
+            error = if (commit.ok) null else commit.stderr.ifBlank { commit.error },
+        )
+    }
+
     private fun snapDir(workspaceRoot: File, snapId: String): File {
         val sid = snapId.trim()
         require(sid.matches(Regex("""snap-[a-f0-9]{12}"""))) { "invalid snapshot id" }

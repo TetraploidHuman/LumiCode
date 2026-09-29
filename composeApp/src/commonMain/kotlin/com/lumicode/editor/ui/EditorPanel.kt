@@ -214,7 +214,7 @@ private fun CollabEditorBanner(state: IdeState) {
         }
         focus?.takeIf { isProposal }?.let { proposal ->
             Spacer(Modifier.height(6.dp))
-            ProposalUserBrief(proposal, collab, compact = true)
+            ProposalUserBrief(proposal, collab, compact = true, state = state)
             Spacer(Modifier.height(6.dp))
             ProposalActions(
                 onAgree = {

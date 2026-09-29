@@ -127,6 +127,28 @@ class WasmWorkspaceBackend : WorkspaceBackend {
         return parseWorkspaceOp(fetchTextJs("$BASE/snapshot/forget", "POST", body).awaitText())
     }
 
+    override suspend fun fileDiff(snapshotId: String, relPath: String): WorkspaceFileDiffResult =
+        parseWorkspaceFileDiff(
+            fetchTextJs(
+                "$BASE/snapshot/file-diff?id=${encodeURIComponentJs(snapshotId)}&path=${encodeURIComponentJs(relPath)}",
+                "GET",
+                null,
+            ).awaitText(),
+        )
+
+    override suspend fun gitStatus(): GitStatusResult =
+        parseGitStatus(fetchTextJs("$BASE/git/status", "GET", null).awaitText())
+
+    override suspend fun gitDiff(relPath: String): GitDiffResult {
+        val q = if (relPath.isBlank()) "" else "?path=${encodeURIComponentJs(relPath)}"
+        return parseGitDiff(fetchTextJs("$BASE/git/diff$q", "GET", null).awaitText())
+    }
+
+    override suspend fun gitCommit(message: String): GitCommitResult {
+        val body = """{"message":${jsonString(message)}}"""
+        return parseGitCommit(fetchTextJs("$BASE/git/commit", "POST", body).awaitText())
+    }
+
     private companion object {
         val BASE: String get() = "${appBasePath()}/api/workspace"
     }
