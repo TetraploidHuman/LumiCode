@@ -221,16 +221,14 @@ private fun CollabEditorBanner(state: IdeState) {
                     scope.launch { state.applyAgentProposal(proposal.id) }
                 },
                 onRetry = {
-                    collab.tryAgain(proposal.id)
-                    state.statusMessage = "小队 · ${collab.phaseLabel}"
+                    scope.launch { state.tryAgainWithRestore(proposal.id) }
                 },
                 onOpinion = { note ->
                     collab.giveOpinion(proposal.id, note)
                     state.statusMessage = "小队 · 已送出意见"
                 },
                 onCancel = {
-                    collab.leaveIt(proposal.id)
-                    state.statusMessage = "小队 · ${collab.phaseLabel}"
+                    scope.launch { state.leaveItAndRestore(proposal.id) }
                 },
             )
         }

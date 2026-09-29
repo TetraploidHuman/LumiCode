@@ -105,6 +105,28 @@ class WasmWorkspaceBackend : WorkspaceBackend {
         return parseShellExec(fetchTextJs("$BASE/exec", "POST", body).awaitText())
     }
 
+    override suspend fun createSnapshot(): WorkspaceSnapshotResult =
+        parseWorkspaceSnapshot(fetchTextJs("$BASE/snapshot/create", "POST", "{}").awaitText())
+
+    override suspend fun diffSnapshot(snapshotId: String): WorkspaceDiffResult =
+        parseWorkspaceDiff(
+            fetchTextJs(
+                "$BASE/snapshot/diff?id=${encodeURIComponentJs(snapshotId)}",
+                "GET",
+                null,
+            ).awaitText(),
+        )
+
+    override suspend fun restoreSnapshot(snapshotId: String): WorkspaceRestoreResult {
+        val body = """{"id":${jsonString(snapshotId)}}"""
+        return parseWorkspaceRestore(fetchTextJs("$BASE/snapshot/restore", "POST", body).awaitText())
+    }
+
+    override suspend fun forgetSnapshot(snapshotId: String): WorkspaceOp {
+        val body = """{"id":${jsonString(snapshotId)}}"""
+        return parseWorkspaceOp(fetchTextJs("$BASE/snapshot/forget", "POST", body).awaitText())
+    }
+
     private companion object {
         val BASE: String get() = "${appBasePath()}/api/workspace"
     }

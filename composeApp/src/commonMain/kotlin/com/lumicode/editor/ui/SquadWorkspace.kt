@@ -460,16 +460,14 @@ private fun SquadAwaiting(collab: CollabState, state: IdeState, compact: Boolean
                             scope.launch { state.applyAgentProposal(task.id) }
                         },
                         onRetry = {
-                            collab.tryAgain(task.id)
-                            state.statusMessage = "小队 · ${collab.phaseLabel}"
+                            scope.launch { state.tryAgainWithRestore(task.id) }
                         },
                         onOpinion = { note ->
                             collab.giveOpinion(task.id, note)
                             state.statusMessage = "小队 · 已送出意见"
                         },
                         onCancel = {
-                            collab.leaveIt(task.id)
-                            state.statusMessage = "小队 · ${collab.phaseLabel}"
+                            scope.launch { state.leaveItAndRestore(task.id) }
                         },
                     )
                 }
@@ -720,7 +718,7 @@ private fun JournalLineWide(e: AgentJournalEntry) {
                     else -> RlColors.InkSoft
                 },
             ),
-            maxLines = 4,
+            maxLines = 10,
             overflow = TextOverflow.Ellipsis,
         )
     }

@@ -993,6 +993,7 @@ class IdeState(initialFiles: List<CodeFile> = emptyList()) {
 
     /**
      * 上级点「顺着」：DSH 工具已改盘时只同步编辑器；若仍带旧式 edits 则兼容落盘。
+     * 确认后丢掉回滚快照（磁盘保持 Agent 改动）。
      */
     suspend fun applyAgentProposal(taskId: String? = collab.selectedTaskId): Boolean {
         val id = taskId ?: return false
@@ -1004,9 +1005,72 @@ class IdeState(initialFiles: List<CodeFile> = emptyList()) {
             }
             rebuildTree()
         }
+        task.snapshotId?.let { snap ->
+            runCatching { WorkspaceApi.forgetSnapshot(snap) }
+            collab.clearTaskSnapshot(id)
+        }
         collab.goAlong(id)
-        statusMessage = if (ok) "已同步 DSH 磁盘变更" else "已确认 · 同步不完整"
+        statusMessage = if (ok) {
+            if (task.changedFiles.isNotEmpty()) {
+                "已确认 · 保留 ${task.changedFiles.size} 处改动"
+            } else {
+                "已同步 DSH 磁盘变更"
+            }
+        } else {
+            "已确认 · 同步不完整"
+        }
         return ok
+    }
+
+    /** 取消任务：先按快照回滚磁盘，再停任务。 */
+    suspend fun leaveItAndRestore(taskId: String? = collab.selectedTaskId): Boolean {
+        val id = taskId ?: return false
+        val task = collab.tasks.firstOrNull { it.id == id } ?: return false
+        val snap = task.snapshotId
+        var restored = false
+        if (!snap.isNullOrBlank()) {
+            val result = WorkspaceApi.restoreSnapshot(snap)
+            if (result.ok) {
+                restored = true
+                collab.markRollbackDone(
+                    id,
+                    "恢复 ${result.restored} · 删除新增 ${result.deleted}",
+                )
+                runCatching { WorkspaceApi.forgetSnapshot(snap) }
+                reloadWorkspaceFromDisk()
+            } else {
+                collab.appendAgent("回滚失败 · ${result.error ?: "unknown"}", LineKind.ERROR)
+                statusMessage = "回滚失败：${result.error ?: "unknown"}"
+            }
+        }
+        collab.leaveIt(id)
+        statusMessage = if (restored) "已取消并回滚磁盘" else "已取消任务"
+        return restored || snap.isNullOrBlank()
+    }
+
+    /** 重跑：先回滚到任务前快照，再派 DSH（新快照会在下次派发时拍）。 */
+    suspend fun tryAgainWithRestore(taskId: String? = collab.selectedTaskId): Boolean {
+        val id = taskId ?: return false
+        val task = collab.tasks.firstOrNull { it.id == id } ?: return false
+        val snap = task.snapshotId
+        if (!snap.isNullOrBlank()) {
+            val result = WorkspaceApi.restoreSnapshot(snap)
+            if (result.ok) {
+                collab.markRollbackDone(
+                    id,
+                    "恢复 ${result.restored} · 删除新增 ${result.deleted}",
+                )
+                runCatching { WorkspaceApi.forgetSnapshot(snap) }
+                collab.clearTaskSnapshot(id)
+                reloadWorkspaceFromDisk()
+            } else {
+                statusMessage = "回滚失败：${result.error ?: "unknown"}"
+                return false
+            }
+        }
+        collab.tryAgain(id)
+        statusMessage = "已回滚并重跑"
+        return true
     }
 
     private suspend fun applyAgentEdit(edit: AgentFileEdit): Boolean {

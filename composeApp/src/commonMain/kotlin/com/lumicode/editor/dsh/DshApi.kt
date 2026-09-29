@@ -5,12 +5,23 @@ package com.lumicode.editor.dsh
  *
  * File read/write is DSH's job (session cwd). LumiCode only sends the workspace path
  * and refreshes the editor from disk after the agent finishes.
+ *
+ * While a chat runs, pass a [jobId] and poll [progress] to stream tool/think steps
+ * into the Squad work log (same events DSH's rail shows).
  */
 data class DshHealth(
     val ok: Boolean,
     val provider: String? = null,
     val model: String? = null,
     val error: String? = null,
+)
+
+/** One durable DSH step: think / say / tool / tool_result. */
+data class DshTraceStep(
+    val kind: String,
+    val text: String,
+    val name: String? = null,
+    val seq: Int? = null,
 )
 
 data class DshChatResult(
@@ -20,6 +31,13 @@ data class DshChatResult(
     val provider: String? = null,
     val model: String? = null,
     val error: String? = null,
+    val steps: List<DshTraceStep> = emptyList(),
+)
+
+data class DshProgress(
+    val jobId: String,
+    val steps: List<DshTraceStep> = emptyList(),
+    val done: Boolean = false,
 )
 
 interface DshBackend {
@@ -29,7 +47,10 @@ interface DshBackend {
         sessionId: String? = null,
         title: String? = null,
         cwd: String? = null,
+        jobId: String? = null,
     ): DshChatResult
+
+    suspend fun progress(jobId: String): DshProgress
 }
 
 object DshApi {
@@ -43,9 +64,13 @@ object DshApi {
         sessionId: String? = null,
         title: String? = null,
         cwd: String? = null,
+        jobId: String? = null,
     ): DshChatResult =
-        backend?.chat(text, sessionId, title, cwd)
+        backend?.chat(text, sessionId, title, cwd, jobId)
             ?: DshChatResult(ok = false, error = "DSH backend not installed")
+
+    suspend fun progress(jobId: String): DshProgress =
+        backend?.progress(jobId) ?: DshProgress(jobId = jobId)
 }
 
 fun parseDshHealth(raw: String): DshHealth =
@@ -64,7 +89,28 @@ fun parseDshChat(raw: String): DshChatResult =
         provider = raw.stringField("provider"),
         model = raw.stringField("model"),
         error = raw.stringField("error"),
+        steps = parseTraceSteps(raw),
     )
+
+fun parseDshProgress(raw: String): DshProgress =
+    DshProgress(
+        jobId = raw.stringField("jobId").orEmpty(),
+        steps = parseTraceSteps(raw),
+        done = raw.boolField("done"),
+    )
+
+fun parseTraceSteps(raw: String): List<DshTraceStep> {
+    val arr = raw.jsonArrayBody("steps") ?: return emptyList()
+    return arr.jsonObjectSlices().mapNotNull { obj ->
+        val kind = obj.stringField("kind") ?: return@mapNotNull null
+        DshTraceStep(
+            kind = kind,
+            text = obj.stringField("text").orEmpty(),
+            name = obj.stringField("name"),
+            seq = obj.intField("seq"),
+        )
+    }
+}
 
 fun jsonString(value: String): String =
     buildString(value.length + 8) {
@@ -82,6 +128,14 @@ fun jsonString(value: String): String =
         append('"')
     }
 
+fun newDshJobId(): String {
+    val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+    return buildString(20) {
+        append("job-")
+        repeat(16) { append(alphabet.random()) }
+    }
+}
+
 private fun String.boolField(key: String): Boolean {
     val re = Regex(""""$key"\s*:\s*(true|false)""")
     return re.find(this)?.groupValues?.getOrNull(1) == "true"
@@ -92,5 +146,106 @@ private fun String.stringField(key: String): String? {
     val m = re.find(this) ?: return null
     val raw = m.groupValues[1]
     if (raw == "null") return null
-    return raw.removeSurrounding("\"").replace("\\n", "\n").replace("\\\"", "\"")
+    return raw.removeSurrounding("\"")
+        .replace("\\n", "\n")
+        .replace("\\\"", "\"")
+        .replace("\\\\", "\\")
+}
+
+private fun String.intField(key: String): Int? {
+    val re = Regex(""""$key"\s*:\s*(-?\d+)""")
+    return re.find(this)?.groupValues?.getOrNull(1)?.toIntOrNull()
+}
+
+private fun String.jsonArrayBody(key: String): String? {
+    val keyPat = "\"$key\""
+    val at = indexOf(keyPat)
+    if (at < 0) return null
+    var j = at + keyPat.length
+    while (j < length && this[j].isWhitespace()) j++
+    if (j >= length || this[j] != ':') return null
+    j++
+    while (j < length && this[j].isWhitespace()) j++
+    if (j >= length || this[j] != '[') return null
+    val start = j
+    var depth = 0
+    var inStr = false
+    var esc = false
+    while (j < length) {
+        val ch = this[j]
+        if (inStr) {
+            when {
+                esc -> esc = false
+                ch == '\\' -> esc = true
+                ch == '"' -> inStr = false
+            }
+            j++
+            continue
+        }
+        when (ch) {
+            '"' -> {
+                inStr = true
+                j++
+            }
+            '[' -> {
+                depth++
+                j++
+            }
+            ']' -> {
+                depth--
+                j++
+                if (depth == 0) return substring(start, j)
+            }
+            else -> j++
+        }
+    }
+    return null
+}
+
+private fun String.jsonObjectSlices(): List<String> {
+    val out = mutableListOf<String>()
+    var i = 0
+    while (i < length) {
+        if (this[i] != '{') {
+            i++
+            continue
+        }
+        val start = i
+        var depth = 0
+        var inStr = false
+        var esc = false
+        while (i < length) {
+            val ch = this[i]
+            if (inStr) {
+                when {
+                    esc -> esc = false
+                    ch == '\\' -> esc = true
+                    ch == '"' -> inStr = false
+                }
+                i++
+                continue
+            }
+            when (ch) {
+                '"' -> {
+                    inStr = true
+                    i++
+                }
+                '{' -> {
+                    depth++
+                    i++
+                }
+                '}' -> {
+                    depth--
+                    i++
+                    if (depth == 0) {
+                        out += substring(start, i)
+                        break
+                    }
+                }
+                else -> i++
+            }
+        }
+        if (depth != 0) break
+    }
+    return out
 }

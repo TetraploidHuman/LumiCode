@@ -1,9 +1,11 @@
 package com.lumicode.editor.dsh
 
 import java.net.URI
+import java.net.URLEncoder
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.charset.StandardCharsets
 import java.time.Duration
 
 class DesktopDshBackend(
@@ -22,6 +24,7 @@ class DesktopDshBackend(
         sessionId: String?,
         title: String?,
         cwd: String?,
+        jobId: String?,
     ): DshChatResult {
         val body = buildString {
             append("{\"text\":")
@@ -38,14 +41,23 @@ class DesktopDshBackend(
                 append(",\"cwd\":")
                 append(jsonString(cwd))
             }
+            if (!jobId.isNullOrBlank()) {
+                append(",\"jobId\":")
+                append(jsonString(jobId))
+            }
             append('}')
         }
         return parseDshChat(post("$base/v1/chat", body))
     }
 
+    override suspend fun progress(jobId: String): DshProgress {
+        val enc = URLEncoder.encode(jobId, StandardCharsets.UTF_8)
+        return parseDshProgress(get("$base/v1/progress/$enc"))
+    }
+
     private fun get(url: String): String {
         val request = HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(120))
+            .timeout(Duration.ofSeconds(30))
             .GET()
             .build()
         return client.send(request, HttpResponse.BodyHandlers.ofString()).body()

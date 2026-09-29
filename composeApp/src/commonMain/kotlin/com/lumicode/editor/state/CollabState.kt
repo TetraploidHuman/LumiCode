@@ -7,8 +7,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import com.lumicode.editor.dsh.DshHealth
+import com.lumicode.editor.dsh.DshTraceStep
 import com.lumicode.editor.platform.clockLabel
 import com.lumicode.editor.workspace.AgentFileEdit
+import com.lumicode.editor.workspace.WorkspaceFileChange
 import com.lumicode.editor.workspace.buildAgentPromptFooter
 import com.lumicode.editor.workspace.parseAgentReply
 
@@ -74,6 +76,10 @@ data class CollabTask(
     val boardTaskId: String? = null,
     /** DSH 提案中的磁盘改动（同意后落盘） */
     val proposalEdits: List<AgentFileEdit> = emptyList(),
+    /** Pre-task workspace snapshot for change list / rollback. */
+    val snapshotId: String? = null,
+    /** Files changed since [snapshotId] (added / modified / deleted). */
+    val changedFiles: List<WorkspaceFileChange> = emptyList(),
 )
 
 /** 探索期术语：汇报时对照用户已知情报，未知名才用人话拆开。 */
@@ -215,24 +221,6 @@ class CollabState {
     private var taskSeq = 0
     private var boardSeq = 0
 
-    init {
-        seedDefaultKnownFacts()
-    }
-
-    private fun seedDefaultKnownFacts() {
-        if (knownFacts.isNotEmpty()) return
-        listOf(
-            "Main.kt" to "当前工程的主文件",
-            "登录页" to "用户进应用时看到的入口界面",
-            "Kotlin" to "本项目主要语言",
-            "write scope" to "任务允许改哪些文件范围（任务板字段）",
-            "SessionStore" to "打算用来集中存放会话状态的类名",
-        ).forEach { (label, detail) ->
-            knownSeq++
-            knownFacts.add(KnownFact(id = "k$knownSeq", label = label, detail = detail))
-        }
-    }
-
     fun isTermKnown(term: String): Boolean {
         val key = term.trim().lowercase()
         if (key.isEmpty()) return false
@@ -304,7 +292,13 @@ class CollabState {
         dshRequestToken++
     }
 
-    fun completeDshTask(taskId: String, reply: String, sessionId: String?) {
+    fun completeDshTask(
+        taskId: String,
+        reply: String,
+        sessionId: String?,
+        snapshotId: String? = null,
+        changedFiles: List<WorkspaceFileChange> = emptyList(),
+    ) {
         val task = tasks.firstOrNull { it.id == taskId } ?: return
         sessionId?.let { dshSessionByAgent[task.agentId] = it }
         val agentId = task.agentId
@@ -313,26 +307,77 @@ class CollabState {
         val parsed = parseAgentReply(reply)
         val brief = parsed.summary.ifBlank { reply.trim() }.ifBlank { "（无摘要）" }
         val first = parsed.edits.firstOrNull()
+            ?: changedFiles.firstOrNull()?.let {
+                AgentFileEdit(it.path, 0, 0, "")
+            }
+        val note = buildString {
+            append(dshModelLabel ?: "DSH · qwen35-9b")
+            append(" · 文件由 DSH 工具改盘")
+            if (changedFiles.isNotEmpty()) append(" · ${changedFiles.size} 个文件变动")
+        }
         updateTask(taskId) {
             it.copy(
                 beat = 1,
                 status = TaskStatus.PROPOSAL,
-                statusLine = "DSH 已执行 · 等你确认同步",
-                proposalPath = first?.path,
+                statusLine = if (changedFiles.isEmpty()) {
+                    "DSH 已执行 · 等你确认"
+                } else {
+                    "改了 ${changedFiles.size} 个文件 · 等你确认或回滚"
+                },
+                proposalPath = first?.path ?: changedFiles.firstOrNull()?.path,
                 proposalStart = first?.startLine ?: 0,
                 proposalEnd = first?.endLine ?: 0,
                 proposalSummary = brief,
-                proposalNote = "${dshModelLabel ?: "DSH · qwen35-9b"} · 文件由 DSH 工具改盘",
+                proposalNote = note,
                 userBrief = brief,
                 exploredTerms = emptyList(),
                 proposalEdits = parsed.edits,
+                snapshotId = snapshotId ?: it.snapshotId,
+                changedFiles = changedFiles,
             )
         }
-        setWorker(agentId, taskId, "等你定 · 磁盘可能已变", phase = MemberPhase.ACTIVE)
+        setWorker(agentId, taskId, "等你定 · 可确认或回滚", phase = MemberPhase.ACTIVE)
         journal(agentId, "DSH 回执 · ${dshModelLabel ?: "qwen35-9b"}（工具写盘）", LineKind.WARN)
-        journal(agentId, brief.lines().firstOrNull()?.take(100) ?: brief.take(100), LineKind.INFO)
-        teamNote("$agent DSH 完成 · 请确认同步编辑器", LineKind.WARN)
+        journal(agentId, brief.lines().firstOrNull()?.take(160) ?: brief.take(160), LineKind.INFO)
+        if (changedFiles.isNotEmpty()) {
+            journal(agentId, "改动记录 · ${formatChangedFiles(changedFiles)}", LineKind.WARN)
+        }
+        teamNote("$agent DSH 完成 · ${changedFiles.size} 处改动", LineKind.WARN)
         pendingDshTaskId = null
+    }
+
+    fun bindTaskSnapshot(taskId: String, snapshotId: String?) {
+        updateTask(taskId) { it.copy(snapshotId = snapshotId, changedFiles = emptyList()) }
+    }
+
+    fun clearTaskSnapshot(taskId: String) {
+        updateTask(taskId) { it.copy(snapshotId = null, changedFiles = emptyList()) }
+    }
+
+    /** Live DSH tool/think/say lines into this agent's work log (like DSH rail). */
+    fun appendDshTrace(agentId: String, steps: List<DshTraceStep>) {
+        if (steps.isEmpty()) return
+        for (step in steps) {
+            when (step.kind) {
+                "think" -> journal(agentId, "思考 · ${step.text}", LineKind.MUTED)
+                "say" -> journal(agentId, step.text, LineKind.INFO)
+                "tool" -> {
+                    val args = step.text.takeIf { it.isNotBlank() }?.let { " $it" }.orEmpty()
+                    journal(agentId, "工具 · ${step.name ?: "call"}$args", LineKind.WARN)
+                    setWorker(
+                        agentId,
+                        workers.firstOrNull { it.id == agentId }?.taskId,
+                        "工具 · ${step.name ?: "call"}",
+                        phase = MemberPhase.ACTIVE,
+                    )
+                }
+                "tool_result" -> {
+                    val label = if (step.name == "error") "工具失败" else "工具结果"
+                    journal(agentId, "$label · ${step.text}", LineKind.MUTED)
+                }
+                else -> journal(agentId, step.text, LineKind.INFO)
+            }
+        }
     }
 
     fun failDshTask(taskId: String, error: String) {
@@ -535,7 +580,7 @@ class CollabState {
     ) {
         val list = ensureJournal(agentId)
         list.add(AgentJournalEntry(clockLabel(), text, kind, fromPeer, toPeer))
-        while (list.size > 80) list.removeAt(0)
+        while (list.size > 220) list.removeAt(0)
     }
 
     private fun push(agent: String?, text: String, kind: LineKind = LineKind.INFO) {
@@ -888,6 +933,8 @@ class CollabState {
                 proposalNote = null,
                 userBrief = null,
                 exploredTerms = emptyList(),
+                changedFiles = emptyList(),
+                // snapshotId kept until IdeState restores + CollabDshEffects makes a new one
             )
         }
         setWorker(task.agentId, id, "重跑中")
@@ -928,13 +975,25 @@ class CollabState {
         push(task.agentName, "上级：取消这路", LineKind.MUTED)
         journal(task.agentId, "上级取消本路任务", LineKind.MUTED)
         updateTask(id) {
-            it.copy(status = TaskStatus.STOPPED, statusLine = "已取消", proposalPath = null)
+            it.copy(
+                status = TaskStatus.STOPPED,
+                statusLine = "已取消",
+                proposalPath = null,
+                changedFiles = emptyList(),
+                // snapshotId cleared by IdeState after restore
+            )
         }
         // 取消任务但同伴仍可留着；若用户从卡片「遣散」再移除
         setWorker(task.agentId, null, "空闲 · 任务已取消")
         selectedTaskId = tasks.firstOrNull {
             it.status == TaskStatus.PROPOSAL || it.status == TaskStatus.WORKING
         }?.id
+    }
+
+    fun markRollbackDone(taskId: String, detail: String) {
+        val task = tasks.firstOrNull { it.id == taskId } ?: return
+        journal(task.agentId, "已回滚磁盘 · $detail", LineKind.OK)
+        clearTaskSnapshot(taskId)
     }
 
     fun stopTask(taskId: String) = leaveIt(taskId)
@@ -992,4 +1051,17 @@ class CollabState {
     fun focusCollab() {
         rightTab = 1
     }
+}
+
+internal fun formatChangedFiles(changes: List<WorkspaceFileChange>, limit: Int = 8): String {
+    if (changes.isEmpty()) return "无"
+    val body = changes.take(limit).joinToString("；") { c ->
+        val tag = when (c.kind) {
+            "added" -> "+"
+            "deleted" -> "−"
+            else -> "~"
+        }
+        "$tag${c.path}"
+    }
+    return if (changes.size > limit) "$body …共${changes.size}个" else body
 }

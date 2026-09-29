@@ -22,11 +22,13 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -100,12 +102,14 @@ class DshHostClient(
     /**
      * Create a session (or reuse), select model, prompt, poll until a turn response.
      * [cwd] is the absolute project directory for DSH filesystem tools.
+     * When [jobId] is set, tool/think steps are published to [ChatProgress] for live polling.
      */
     suspend fun chat(
         text: String,
         sessionId: String? = null,
         titleHint: String? = null,
         cwd: String? = null,
+        jobId: String? = null,
     ): ChatResult {
         if (!ensureAuth()) {
             return ChatResult(ok = false, error = lastError ?: "unauthorized")
@@ -115,6 +119,8 @@ class DshHostClient(
             return ChatResult(ok = false, error = "empty prompt")
         }
         val projectCwd = cwd?.trim()?.takeIf { it.isNotEmpty() }
+        val progressKey = jobId?.trim()?.takeIf { it.isNotEmpty() }
+        if (progressKey != null) ChatProgress.begin(progressKey)
 
         return try {
             val sid = sessionId?.takeIf { it.isNotBlank() }
@@ -125,14 +131,32 @@ class DshHostClient(
             }
             val requestId = "req-" + UUID.randomUUID()
             prompt(sid, requestId, promptText)
-            val reply = waitForReply(sid, promptText, timeoutMs = 300_000)
+            val steps = mutableListOf<TraceStep>()
+            val reply = waitForReply(sid, promptText, timeoutMs = 300_000) { step ->
+                steps += step
+                if (progressKey != null) ChatProgress.append(progressKey, step)
+            }
+            if (progressKey != null) ChatProgress.finish(progressKey)
             if (reply == null) {
-                ChatResult(ok = false, sessionId = sid, error = "timed out waiting for DSH reply")
+                ChatResult(
+                    ok = false,
+                    sessionId = sid,
+                    error = "timed out waiting for DSH reply",
+                    steps = steps,
+                )
             } else {
-                ChatResult(ok = true, sessionId = sid, reply = reply, provider = provider, model = model)
+                ChatResult(
+                    ok = true,
+                    sessionId = sid,
+                    reply = reply,
+                    provider = provider,
+                    model = model,
+                    steps = steps,
+                )
             }
         } catch (t: Throwable) {
             lastError = t.message
+            if (progressKey != null) ChatProgress.finish(progressKey)
             ChatResult(ok = false, error = t.message ?: "dsh error")
         }
     }
@@ -202,8 +226,15 @@ class DshHostClient(
         }
     }
 
-    private suspend fun waitForReply(sessionId: String, promptText: String, timeoutMs: Long = 120_000): String? {
+    private suspend fun waitForReply(
+        sessionId: String,
+        promptText: String,
+        timeoutMs: Long = 120_000,
+        onStep: (TraceStep) -> Unit,
+    ): String? {
         val deadline = System.currentTimeMillis() + timeoutMs
+        var lastSeq = -1
+        val seen = HashSet<String>()
         while (System.currentTimeMillis() < deadline) {
             val proj = rpc(
                 "session/projections",
@@ -213,7 +244,17 @@ class DshHostClient(
                     }
                 },
             )
-            val values = proj.dig("result", "value", "values")?.jsonObject
+            val baseline = proj.dig("result", "value")?.jsonObject
+            val asOf = baseline?.get("asOfSeq")?.jsonPrimitive?.intOrNull
+            if (asOf != null && asOf > lastSeq) {
+                try {
+                    drainTrace(sessionId, throughSeq = asOf, afterSeq = lastSeq, seen = seen, onStep = onStep)
+                } catch (t: Throwable) {
+                    System.err.println("dsh-bridge: drainTrace failed seq=$lastSeq..$asOf: ${t.message}")
+                }
+                lastSeq = asOf
+            }
+            val values = baseline?.get("values")?.jsonObject
             val outline = values?.get("turnOutline")?.jsonArray
             if (outline != null && outline.isNotEmpty()) {
                 for (i in outline.size - 1 downTo 0) {
@@ -227,9 +268,107 @@ class DshHostClient(
                     }
                 }
             }
-            delay(700)
+            delay(500)
         }
         return null
+    }
+
+    /** Pull durable session events up to [throughSeq] and emit new tool/think/say steps. */
+    private suspend fun drainTrace(
+        sessionId: String,
+        throughSeq: Int,
+        afterSeq: Int,
+        seen: MutableSet<String>,
+        onStep: (TraceStep) -> Unit,
+    ) {
+        val page = rpc(
+            "session/page",
+            buildJsonObject {
+                putJsonObject("request") {
+                    putJsonObject("address") {
+                        put("kind", "session")
+                        put("sessionId", sessionId)
+                    }
+                    put("throughSeq", throughSeq)
+                    put("maxMessages", 120)
+                }
+            },
+        )
+        val records = page.dig("result", "value", "records")?.jsonArray ?: return
+        val events = records.mapNotNull { rec ->
+            val event = rec.jsonObject["event"]?.jsonObject ?: rec.jsonObject
+            val seq = event["seq"]?.jsonPrimitive?.intOrNull ?: return@mapNotNull null
+            seq to event
+        }.sortedBy { it.first }
+        for ((seq, event) in events) {
+            if (seq <= afterSeq) continue
+            emitTraceFromEvent(seq, event, seen, onStep)
+        }
+    }
+
+    private fun emitTraceFromEvent(
+        seq: Int,
+        event: JsonObject,
+        seen: MutableSet<String>,
+        onStep: (TraceStep) -> Unit,
+    ) {
+        val type = event["type"]?.jsonPrimitive?.contentOrNull ?: return
+        val data = event["data"]?.jsonObject ?: JsonObject(emptyMap())
+        when (type) {
+            "tool/call" -> {
+                if (!seen.add("tc:$seq")) return
+                val name = data["name"]?.jsonPrimitive?.contentOrNull ?: "tool"
+                val args = data["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                onStep(
+                    TraceStep(
+                        kind = "tool",
+                        name = name,
+                        text = compactToolArgs(args),
+                        seq = seq,
+                    ),
+                )
+            }
+            "tool/result" -> {
+                if (!seen.add("tr:$seq")) return
+                val message = data["message"]?.jsonObject
+                val err = message?.get("isError").asBool() == true
+                val body = contentBlocksText(message?.get("content")).ifBlank {
+                    data["error"]?.jsonObject?.get("reason")?.jsonPrimitive?.contentOrNull.orEmpty()
+                }
+                onStep(
+                    TraceStep(
+                        kind = "tool_result",
+                        name = if (err) "error" else null,
+                        text = body.take(500),
+                        seq = seq,
+                    ),
+                )
+            }
+            "assistant/message", "assistant/attempt" -> {
+                val message = data["message"]?.jsonObject ?: return
+                val content = message["content"] as? JsonArray ?: return
+                val hasToolCall = content.any {
+                    it.jsonObject["type"]?.jsonPrimitive?.contentOrNull == "tool-call"
+                }
+                content.forEachIndexed { index, el ->
+                    val block = el as? JsonObject ?: return@forEachIndexed
+                    val blockType = block["type"]?.jsonPrimitive?.contentOrNull ?: return@forEachIndexed
+                    val text = block["text"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
+                    when (blockType) {
+                        "reasoning" -> {
+                            if (text.isBlank() || !seen.add("r:$seq:$index")) return@forEachIndexed
+                            onStep(TraceStep(kind = "think", text = text.take(900), seq = seq))
+                        }
+                        "text" -> {
+                            if (text.isBlank() || !seen.add("t:$seq:$index")) return@forEachIndexed
+                            // Mid-turn narration before tools ≈ thinking; final text-only ≈ say.
+                            val kind = if (hasToolCall) "think" else "say"
+                            onStep(TraceStep(kind = kind, text = text.take(900), seq = seq))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private suspend fun exchangeToken(token: String): Boolean {
@@ -311,6 +450,8 @@ data class ChatRequest(
     val title: String? = null,
     /** Absolute workspace path; bound as DSH session cwd so file tools hit the right tree. */
     val cwd: String? = null,
+    /** Client-generated id so Squad can poll /v1/progress/{jobId} while chat runs. */
+    val jobId: String? = null,
 )
 
 @Serializable
@@ -321,7 +462,28 @@ data class ChatResult(
     val provider: String? = null,
     val model: String? = null,
     val error: String? = null,
+    val steps: List<TraceStep> = emptyList(),
 )
+
+private fun compactToolArgs(raw: String): String {
+    val oneLine = raw.replace(Regex("\\s+"), " ").trim()
+    return oneLine.take(420)
+}
+
+private fun contentBlocksText(content: JsonElement?): String {
+    val arr = content as? JsonArray ?: return when (content) {
+        is JsonPrimitive -> content.contentOrNull.orEmpty()
+        else -> content?.toString().orEmpty()
+    }
+    return buildString {
+        for (el in arr) {
+            val block = el as? JsonObject ?: continue
+            val t = block["text"]?.jsonPrimitive?.contentOrNull ?: continue
+            if (isNotEmpty()) append('\n')
+            append(t)
+        }
+    }.replace(Regex("\\s+"), " ").trim()
+}
 
 private fun JsonObject.dig(vararg path: String): JsonElement? {
     var cur: JsonElement? = this

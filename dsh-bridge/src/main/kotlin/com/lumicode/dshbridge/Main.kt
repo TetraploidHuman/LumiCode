@@ -55,9 +55,13 @@ fun main() {
             get("/v1/health") {
                 call.respond(client.health())
             }
+            get("/v1/progress/{jobId}") {
+                val jobId = call.parameters["jobId"].orEmpty()
+                call.respond(ChatProgress.snapshot(jobId))
+            }
             post("/v1/chat") {
                 val req = call.receive<ChatRequest>()
-                val result = client.chat(req.text, req.sessionId, req.title, req.cwd)
+                val result = client.chat(req.text, req.sessionId, req.title, req.cwd, req.jobId)
                 call.respond(if (result.ok) HttpStatusCode.OK else HttpStatusCode.BadGateway, result)
             }
             get("/") {

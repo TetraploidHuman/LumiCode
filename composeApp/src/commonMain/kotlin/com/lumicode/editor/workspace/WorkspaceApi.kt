@@ -49,6 +49,35 @@ data class ShellExecResult(
     val error: String? = null,
 )
 
+/** One file delta vs a pre-task workspace snapshot. */
+data class WorkspaceFileChange(
+    val path: String,
+    /** added | modified | deleted */
+    val kind: String,
+)
+
+data class WorkspaceSnapshotResult(
+    val ok: Boolean,
+    val snapshotId: String? = null,
+    val fileCount: Int = 0,
+    val error: String? = null,
+)
+
+data class WorkspaceDiffResult(
+    val ok: Boolean,
+    val snapshotId: String? = null,
+    val changes: List<WorkspaceFileChange> = emptyList(),
+    val error: String? = null,
+)
+
+data class WorkspaceRestoreResult(
+    val ok: Boolean,
+    val snapshotId: String? = null,
+    val restored: Int = 0,
+    val deleted: Int = 0,
+    val error: String? = null,
+)
+
 interface WorkspaceBackend {
     suspend fun status(): WorkspaceStatus
     suspend fun openRoot(path: String): WorkspaceStatus
@@ -63,6 +92,10 @@ interface WorkspaceBackend {
     suspend fun rename(from: String, to: String): WorkspaceOp
     suspend fun delete(relPath: String): WorkspaceOp
     suspend fun exec(command: String, cwd: String = ""): ShellExecResult
+    suspend fun createSnapshot(): WorkspaceSnapshotResult
+    suspend fun diffSnapshot(snapshotId: String): WorkspaceDiffResult
+    suspend fun restoreSnapshot(snapshotId: String): WorkspaceRestoreResult
+    suspend fun forgetSnapshot(snapshotId: String): WorkspaceOp
 }
 
 object WorkspaceApi {
@@ -104,6 +137,21 @@ object WorkspaceApi {
     suspend fun exec(command: String, cwd: String = ""): ShellExecResult =
         backend?.exec(command, cwd)
             ?: ShellExecResult(ok = false, error = "工作区后端未安装")
+
+    suspend fun createSnapshot(): WorkspaceSnapshotResult =
+        backend?.createSnapshot()
+            ?: WorkspaceSnapshotResult(ok = false, error = "工作区后端未安装")
+
+    suspend fun diffSnapshot(snapshotId: String): WorkspaceDiffResult =
+        backend?.diffSnapshot(snapshotId)
+            ?: WorkspaceDiffResult(ok = false, error = "工作区后端未安装")
+
+    suspend fun restoreSnapshot(snapshotId: String): WorkspaceRestoreResult =
+        backend?.restoreSnapshot(snapshotId)
+            ?: WorkspaceRestoreResult(ok = false, error = "工作区后端未安装")
+
+    suspend fun forgetSnapshot(snapshotId: String): WorkspaceOp =
+        backend?.forgetSnapshot(snapshotId) ?: WorkspaceOp(ok = false, error = "工作区后端未安装")
 }
 
 fun parseWorkspaceStatus(raw: String): WorkspaceStatus =
@@ -165,5 +213,41 @@ fun parseShellExec(raw: String): ShellExecResult =
         stdout = raw.stringField("stdout").orEmpty(),
         stderr = raw.stringField("stderr").orEmpty(),
         cwd = raw.stringField("cwd").orEmpty(),
+        error = raw.stringField("error"),
+    )
+
+fun parseWorkspaceSnapshot(raw: String): WorkspaceSnapshotResult =
+    WorkspaceSnapshotResult(
+        ok = raw.boolField("ok"),
+        snapshotId = raw.stringField("snapshotId"),
+        fileCount = raw.intField("fileCount") ?: 0,
+        error = raw.stringField("error"),
+    )
+
+fun parseWorkspaceDiff(raw: String): WorkspaceDiffResult {
+    if (!raw.boolField("ok")) {
+        return WorkspaceDiffResult(ok = false, error = raw.stringField("error"))
+    }
+    val changes = mutableListOf<WorkspaceFileChange>()
+    val block = Regex(""""changes"\s*:\s*\[(.*)]""", RegexOption.DOT_MATCHES_ALL)
+        .find(raw)?.groupValues?.getOrNull(1).orEmpty()
+    for (obj in block.jsonObjectSlices()) {
+        val path = obj.stringField("path") ?: continue
+        val kind = obj.stringField("kind") ?: continue
+        changes += WorkspaceFileChange(path = path, kind = kind)
+    }
+    return WorkspaceDiffResult(
+        ok = true,
+        snapshotId = raw.stringField("snapshotId"),
+        changes = changes,
+    )
+}
+
+fun parseWorkspaceRestore(raw: String): WorkspaceRestoreResult =
+    WorkspaceRestoreResult(
+        ok = raw.boolField("ok"),
+        snapshotId = raw.stringField("snapshotId"),
+        restored = raw.intField("restored") ?: 0,
+        deleted = raw.intField("deleted") ?: 0,
         error = raw.stringField("error"),
     )

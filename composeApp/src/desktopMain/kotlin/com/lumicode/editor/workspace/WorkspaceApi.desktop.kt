@@ -7,6 +7,7 @@ import kotlin.io.path.isRegularFile
 
 private val SKIP_DIRS = setOf(
     ".git", ".gradle", ".idea", ".kotlin", "node_modules", "build", "dist", "out", ".cursor",
+    ".lumicode",
 )
 
 private val TEXT_EXT = setOf(
@@ -173,6 +174,145 @@ class DesktopWorkspaceBackend : WorkspaceBackend {
         } catch (e: Exception) {
             ShellExecResult(ok = false, error = e.message ?: "exec failed", cwd = rel(base, work))
         }
+    }
+
+    override suspend fun createSnapshot(): WorkspaceSnapshotResult {
+        val base = root?.takeIf { it.isDirectory }
+            ?: return WorkspaceSnapshotResult(ok = false, error = "未打开工作区")
+        val snapId = "snap-" + java.util.UUID.randomUUID().toString().replace("-", "").take(12)
+        val snapRoot = snapDir(base, snapId)
+        val filesDir = File(snapRoot, "files")
+        filesDir.mkdirs()
+        val files = listFiles(base)
+        var copied = 0
+        for (rel in files) {
+            val src = safeJoin(base, rel)
+            val dst = File(filesDir, rel)
+            try {
+                dst.parentFile?.mkdirs()
+                src.copyTo(dst, overwrite = true)
+                copied++
+            } catch (_: Exception) {
+            }
+        }
+        val manifest = buildString {
+            append("{\"id\":")
+            append(jsonString(snapId))
+            append(",\"root\":")
+            append(jsonString(base.absolutePath))
+            append(",\"files\":[")
+            files.forEachIndexed { i, f ->
+                if (i > 0) append(',')
+                append(jsonString(f))
+            }
+            append("]}")
+        }
+        File(snapRoot, "manifest.json").writeText(manifest, Charsets.UTF_8)
+        return WorkspaceSnapshotResult(ok = true, snapshotId = snapId, fileCount = copied)
+    }
+
+    override suspend fun diffSnapshot(snapshotId: String): WorkspaceDiffResult {
+        val base = root?.takeIf { it.isDirectory }
+            ?: return WorkspaceDiffResult(ok = false, error = "未打开工作区")
+        val snapRoot = try {
+            snapDir(base, snapshotId)
+        } catch (e: IllegalArgumentException) {
+            return WorkspaceDiffResult(ok = false, error = e.message)
+        }
+        val manifestFile = File(snapRoot, "manifest.json")
+        if (!manifestFile.isFile) return WorkspaceDiffResult(ok = false, error = "snapshot not found")
+        val raw = manifestFile.readText(Charsets.UTF_8)
+        val before = raw.stringListField("files").toSet()
+        val after = listFiles(base).toSet()
+        val filesDir = File(snapRoot, "files")
+        val changes = mutableListOf<WorkspaceFileChange>()
+        for (rel in (after - before).sorted()) {
+            changes += WorkspaceFileChange(rel, "added")
+        }
+        for (rel in (before - after).sorted()) {
+            changes += WorkspaceFileChange(rel, "deleted")
+        }
+        for (rel in (before intersect after).sorted()) {
+            val snapFile = File(filesDir, rel)
+            val cur = safeJoin(base, rel)
+            val changed = try {
+                !snapFile.isFile || snapFile.readBytes().contentEquals(cur.readBytes()).not()
+            } catch (_: Exception) {
+                true
+            }
+            if (changed) changes += WorkspaceFileChange(rel, "modified")
+        }
+        return WorkspaceDiffResult(ok = true, snapshotId = snapshotId, changes = changes)
+    }
+
+    override suspend fun restoreSnapshot(snapshotId: String): WorkspaceRestoreResult {
+        val base = root?.takeIf { it.isDirectory }
+            ?: return WorkspaceRestoreResult(ok = false, error = "未打开工作区")
+        val snapRoot = try {
+            snapDir(base, snapshotId)
+        } catch (e: IllegalArgumentException) {
+            return WorkspaceRestoreResult(ok = false, error = e.message)
+        }
+        val manifestFile = File(snapRoot, "manifest.json")
+        if (!manifestFile.isFile) return WorkspaceRestoreResult(ok = false, error = "snapshot not found")
+        val before = manifestFile.readText(Charsets.UTF_8).stringListField("files")
+        val beforeSet = before.toSet()
+        val after = listFiles(base).toSet()
+        val filesDir = File(snapRoot, "files")
+        var restored = 0
+        var deleted = 0
+        for (rel in (after - beforeSet).sorted()) {
+            val target = safeJoin(base, rel)
+            if (target.isFile && target.delete()) {
+                deleted++
+                var parent = target.parentFile
+                while (parent != null && parent != base && parent.list()?.isEmpty() == true) {
+                    if (!parent.delete()) break
+                    parent = parent.parentFile
+                }
+            }
+        }
+        for (rel in before) {
+            val src = File(filesDir, rel)
+            if (!src.isFile) continue
+            val dst = safeJoin(base, rel)
+            try {
+                dst.parentFile?.mkdirs()
+                src.copyTo(dst, overwrite = true)
+                restored++
+            } catch (_: Exception) {
+            }
+        }
+        return WorkspaceRestoreResult(
+            ok = true,
+            snapshotId = snapshotId,
+            restored = restored,
+            deleted = deleted,
+        )
+    }
+
+    override suspend fun forgetSnapshot(snapshotId: String): WorkspaceOp {
+        val base = root?.takeIf { it.isDirectory }
+            ?: return WorkspaceOp(ok = false, error = "未打开工作区")
+        val snapRoot = try {
+            snapDir(base, snapshotId)
+        } catch (e: IllegalArgumentException) {
+            return WorkspaceOp(ok = false, error = e.message)
+        }
+        if (!snapRoot.exists()) return WorkspaceOp(ok = true)
+        return if (snapRoot.deleteRecursively()) WorkspaceOp(ok = true)
+        else WorkspaceOp(ok = false, error = "forget failed")
+    }
+
+    private fun snapDir(workspaceRoot: File, snapId: String): File {
+        val sid = snapId.trim()
+        require(sid.matches(Regex("""snap-[a-f0-9]{12}"""))) { "invalid snapshot id" }
+        val key = java.security.MessageDigest.getInstance("SHA-1")
+            .digest(workspaceRoot.canonicalPath.toByteArray(Charsets.UTF_8))
+            .joinToString("") { b -> "%02x".format(b) }
+            .take(16)
+        val cache = File(System.getProperty("user.home"), ".cache/lumicode/snapshots/$key/$sid")
+        return cache
     }
 
     private fun rel(base: File, file: File): String {

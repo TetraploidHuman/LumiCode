@@ -6,10 +6,13 @@ All paths are confined under a configured workspace root. State is persisted in
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import shutil
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -29,7 +32,10 @@ SKIP_DIR_NAMES = {
     "dist",
     "out",
     ".cursor",
+    ".lumicode",
 }
+
+CACHE_DIR = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / "lumicode" / "snapshots"
 
 TEXT_EXTENSIONS = {
     ".kt",
@@ -296,6 +302,147 @@ class WorkspaceStore:
             "cwd": self._rel(base, work),
         }
 
+    def snapshot_create(self) -> dict[str, Any]:
+        """Copy current text files into a cache snapshot for later diff/restore."""
+        base = self._require_root()
+        snap_id = "snap-" + uuid.uuid4().hex[:12]
+        snap_root = self._snap_dir(base, snap_id)
+        files_dir = snap_root / "files"
+        files_dir.mkdir(parents=True, exist_ok=True)
+        files = self._list_files()
+        copied = 0
+        for rel in files:
+            src = self._safe_join(base, rel)
+            dst = files_dir / rel
+            try:
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dst)
+                copied += 1
+            except OSError:
+                continue
+        manifest = {"id": snap_id, "root": base, "files": files}
+        (snap_root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        return {"ok": True, "snapshotId": snap_id, "fileCount": copied}
+
+    def snapshot_diff(self, snap_id: str) -> dict[str, Any]:
+        base = self._require_root()
+        try:
+            snap_root = self._snap_dir(base, snap_id)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        manifest_path = snap_root / "manifest.json"
+        if not manifest_path.is_file():
+            return {"ok": False, "error": "snapshot not found"}
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            return {"ok": False, "error": str(error)}
+        before = set(manifest.get("files") or [])
+        after = set(self._list_files())
+        files_dir = snap_root / "files"
+        changes: list[dict[str, str]] = []
+        for rel in sorted(after - before):
+            changes.append({"path": rel, "kind": "added"})
+        for rel in sorted(before - after):
+            changes.append({"path": rel, "kind": "deleted"})
+        for rel in sorted(before & after):
+            snap_file = files_dir / rel
+            cur = self._safe_join(base, rel)
+            try:
+                if not snap_file.is_file():
+                    changes.append({"path": rel, "kind": "modified"})
+                    continue
+                with open(snap_file, "rb") as a, open(cur, "rb") as b:
+                    if a.read() != b.read():
+                        changes.append({"path": rel, "kind": "modified"})
+            except OSError:
+                changes.append({"path": rel, "kind": "modified"})
+        return {
+            "ok": True,
+            "snapshotId": snap_id,
+            "changes": changes,
+            "changeCount": len(changes),
+        }
+
+    def snapshot_restore(self, snap_id: str) -> dict[str, Any]:
+        base = self._require_root()
+        try:
+            snap_root = self._snap_dir(base, snap_id)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        manifest_path = snap_root / "manifest.json"
+        if not manifest_path.is_file():
+            return {"ok": False, "error": "snapshot not found"}
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            return {"ok": False, "error": str(error)}
+        before = list(manifest.get("files") or [])
+        before_set = set(before)
+        after = set(self._list_files())
+        files_dir = snap_root / "files"
+        restored = 0
+        deleted = 0
+        # Remove files agent added
+        for rel in sorted(after - before_set):
+            target = self._safe_join(base, rel)
+            try:
+                if os.path.isfile(target):
+                    os.remove(target)
+                    deleted += 1
+                    # prune empty parents up to base
+                    parent = os.path.dirname(target)
+                    while parent.startswith(base + os.sep):
+                        try:
+                            os.rmdir(parent)
+                        except OSError:
+                            break
+                        parent = os.path.dirname(parent)
+            except OSError:
+                continue
+        # Restore snapshotted files
+        for rel in before:
+            src = files_dir / rel
+            dst = self._safe_join(base, rel)
+            try:
+                if not src.is_file():
+                    continue
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
+                restored += 1
+            except OSError:
+                continue
+        return {
+            "ok": True,
+            "snapshotId": snap_id,
+            "restored": restored,
+            "deleted": deleted,
+        }
+
+    def snapshot_forget(self, snap_id: str) -> dict[str, Any]:
+        base = self._require_root()
+        try:
+            snap_root = self._snap_dir(base, snap_id)
+        except ValueError as error:
+            return {"ok": False, "error": str(error)}
+        if not snap_root.exists():
+            return {"ok": True, "snapshotId": snap_id, "forgotten": False}
+        try:
+            shutil.rmtree(snap_root)
+        except OSError as error:
+            return {"ok": False, "error": str(error)}
+        return {"ok": True, "snapshotId": snap_id, "forgotten": True}
+
+    def _snap_dir(self, workspace_root: str, snap_id: str) -> Path:
+        sid = (snap_id or "").strip()
+        if not re.fullmatch(r"snap-[a-f0-9]{12}", sid):
+            raise ValueError("invalid snapshot id")
+        key = hashlib.sha1(os.path.realpath(workspace_root).encode("utf-8")).hexdigest()[:16]
+        return CACHE_DIR / key / sid
+
     def _require_root(self) -> str:
         if not self.root:
             raise ValueError("workspace not opened")
@@ -401,6 +548,19 @@ def handle_workspace(store: WorkspaceStore, method: str, path: str, body: bytes 
                     str(data.get("cwd", "")),
                 )
             )
+        if path == "/api/workspace/snapshot/create" and method == "POST":
+            return 200, json_response(store.snapshot_create())
+        if path.startswith("/api/workspace/snapshot/diff") and method == "GET":
+            from urllib.parse import parse_qs, urlparse
+
+            qs = parse_qs(urlparse(path).query)
+            return 200, json_response(store.snapshot_diff(str(qs.get("id", [""])[0])))
+        if path == "/api/workspace/snapshot/restore" and method == "POST":
+            data = json.loads(body.decode("utf-8") if body else "{}")
+            return 200, json_response(store.snapshot_restore(str(data.get("id", ""))))
+        if path == "/api/workspace/snapshot/forget" and method == "POST":
+            data = json.loads(body.decode("utf-8") if body else "{}")
+            return 200, json_response(store.snapshot_forget(str(data.get("id", ""))))
     except ValueError as error:
         return 400, json_response({"ok": False, "error": str(error)})
     except json.JSONDecodeError:

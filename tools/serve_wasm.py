@@ -171,7 +171,7 @@ class ArchiveHandler(http.server.SimpleHTTPRequestHandler):
         host, _, port_s = DSH_BRIDGE.partition(":")
         port = int(port_s or "8098")
         try:
-            conn = http.client.HTTPConnection(host, port, timeout=120)
+            conn = http.client.HTTPConnection(host, port, timeout=330)
             headers = {
                 "Accept": "application/json",
                 "Connection": "close",

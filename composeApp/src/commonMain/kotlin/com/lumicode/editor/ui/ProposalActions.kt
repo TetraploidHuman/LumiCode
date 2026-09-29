@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import com.lumicode.editor.state.CollabState
 import com.lumicode.editor.state.CollabTask
 import com.lumicode.editor.state.IdeState
+import com.lumicode.editor.state.formatChangedFiles
 import com.lumicode.editor.state.labelZh
 import com.lumicode.editor.ui.components.GhostButton
 import com.lumicode.editor.ui.components.Label
@@ -50,9 +51,23 @@ fun ProposalUserBrief(
     val brief = task.userBrief ?: task.proposalSummary
     val unknown = collab.termsNeedingExplain(task.exploredTerms)
     val assumed = collab.termsAssumedKnown(task.exploredTerms)
-    if (brief.isNullOrBlank() && unknown.isEmpty() && assumed.isEmpty()) return
+    val changes = task.changedFiles
+    if (brief.isNullOrBlank() && unknown.isEmpty() && assumed.isEmpty() && changes.isEmpty()) return
     var termsOpen by remember(task.id) { mutableStateOf(!compact && unknown.isNotEmpty()) }
     Column(modifier.fillMaxWidth()) {
+        if (changes.isNotEmpty()) {
+            LabelRaw(
+                text = "改动记录 · ${changes.size} 个文件",
+                style = RlType.label(10.sp, RlColors.Accent),
+            )
+            Spacer(Modifier.height(2.dp))
+            LabelRaw(
+                text = formatChangedFiles(changes, if (compact) 5 else 12),
+                style = RlType.mono.copy(fontSize = if (compact) 10.sp else 11.sp, color = RlColors.InkSoft),
+                maxLines = if (compact) 2 else 4,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
         if (!brief.isNullOrBlank()) {
             LabelRaw(
                 text = "给人看的说法 · 口径「${collab.understandingLevel.labelZh()}」",
@@ -237,13 +252,13 @@ fun ProposalActions(
                 draft = ""
                 onAgree()
             })
-            GhostButton(text = "重来", onClick = {
+            GhostButton(text = "重来（先回滚）", onClick = {
                 opinionOpen = false
                 draft = ""
                 onRetry()
             })
             GhostButton(text = "意见", onClick = { opinionOpen = !opinionOpen })
-            GhostButton(text = "取消", onClick = {
+            GhostButton(text = "取消并回滚", onClick = {
                 opinionOpen = false
                 draft = ""
                 onCancel()

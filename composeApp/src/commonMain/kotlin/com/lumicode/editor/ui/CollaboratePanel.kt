@@ -148,16 +148,14 @@ private fun SquadGlance(collab: CollabState, state: IdeState) {
                                         scope.launch { state.applyAgentProposal(task.id) }
                                     },
                                     onRetry = {
-                                        collab.tryAgain(task.id)
-                                        state.statusMessage = "小队 · ${collab.phaseLabel}"
+                                        scope.launch { state.tryAgainWithRestore(task.id) }
                                     },
                                     onOpinion = { note ->
                                         collab.giveOpinion(task.id, note)
                                         state.statusMessage = "小队 · 已送出意见"
                                     },
                                     onCancel = {
-                                        collab.leaveIt(task.id)
-                                        state.statusMessage = "小队 · ${collab.phaseLabel}"
+                                        scope.launch { state.leaveItAndRestore(task.id) }
                                     },
                                 )
                             }

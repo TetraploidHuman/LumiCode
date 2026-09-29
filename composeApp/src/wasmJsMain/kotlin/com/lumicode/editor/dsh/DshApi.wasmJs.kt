@@ -41,31 +41,50 @@ class WasmDshBackend : DshBackend {
         sessionId: String?,
         title: String?,
         cwd: String?,
+        jobId: String?,
     ): DshChatResult {
-        val body = buildString {
-            append("{\"text\":")
-            append(jsonString(text))
-            if (!sessionId.isNullOrBlank()) {
-                append(",\"sessionId\":")
-                append(jsonString(sessionId))
-            }
-            if (!title.isNullOrBlank()) {
-                append(",\"title\":")
-                append(jsonString(title))
-            }
-            if (!cwd.isNullOrBlank()) {
-                append(",\"cwd\":")
-                append(jsonString(cwd))
-            }
-            append('}')
-        }
+        val body = buildChatBody(text, sessionId, title, cwd, jobId)
         return parseDshChat(fetchTextJs("$BASE/v1/chat", body).awaitText())
     }
+
+    override suspend fun progress(jobId: String): DshProgress =
+        parseDshProgress(fetchTextJs("$BASE/v1/progress/${encodeURIComponent(jobId)}", null).awaitText())
 
     private companion object {
         val BASE: String get() = "${appBasePath()}/api/dsh"
     }
 }
+
+private fun buildChatBody(
+    text: String,
+    sessionId: String?,
+    title: String?,
+    cwd: String?,
+    jobId: String?,
+): String = buildString {
+    append("{\"text\":")
+    append(jsonString(text))
+    if (!sessionId.isNullOrBlank()) {
+        append(",\"sessionId\":")
+        append(jsonString(sessionId))
+    }
+    if (!title.isNullOrBlank()) {
+        append(",\"title\":")
+        append(jsonString(title))
+    }
+    if (!cwd.isNullOrBlank()) {
+        append(",\"cwd\":")
+        append(jsonString(cwd))
+    }
+    if (!jobId.isNullOrBlank()) {
+        append(",\"jobId\":")
+        append(jsonString(jobId))
+    }
+    append('}')
+}
+
+@JsFun("(s) => encodeURIComponent(s)")
+private external fun encodeURIComponent(s: String): String
 
 fun installWasmDshBackend() {
     DshApi.backend = WasmDshBackend()
