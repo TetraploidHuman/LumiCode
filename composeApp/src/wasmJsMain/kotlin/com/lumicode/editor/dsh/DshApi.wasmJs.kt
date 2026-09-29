@@ -36,7 +36,12 @@ class WasmDshBackend : DshBackend {
     override suspend fun health(): DshHealth =
         parseDshHealth(fetchTextJs("$BASE/v1/health", null).awaitText())
 
-    override suspend fun chat(text: String, sessionId: String?, title: String?): DshChatResult {
+    override suspend fun chat(
+        text: String,
+        sessionId: String?,
+        title: String?,
+        cwd: String?,
+    ): DshChatResult {
         val body = buildString {
             append("{\"text\":")
             append(jsonString(text))
@@ -47,6 +52,10 @@ class WasmDshBackend : DshBackend {
             if (!title.isNullOrBlank()) {
                 append(",\"title\":")
                 append(jsonString(title))
+            }
+            if (!cwd.isNullOrBlank()) {
+                append(",\"cwd\":")
+                append(jsonString(cwd))
             }
             append('}')
         }

@@ -17,7 +17,12 @@ class DesktopDshBackend(
     override suspend fun health(): DshHealth =
         parseDshHealth(get("$base/v1/health"))
 
-    override suspend fun chat(text: String, sessionId: String?, title: String?): DshChatResult {
+    override suspend fun chat(
+        text: String,
+        sessionId: String?,
+        title: String?,
+        cwd: String?,
+    ): DshChatResult {
         val body = buildString {
             append("{\"text\":")
             append(jsonString(text))
@@ -28,6 +33,10 @@ class DesktopDshBackend(
             if (!title.isNullOrBlank()) {
                 append(",\"title\":")
                 append(jsonString(title))
+            }
+            if (!cwd.isNullOrBlank()) {
+                append(",\"cwd\":")
+                append(jsonString(cwd))
             }
             append('}')
         }
@@ -44,7 +53,7 @@ class DesktopDshBackend(
 
     private fun post(url: String, body: String): String {
         val request = HttpRequest.newBuilder(URI.create(url))
-            .timeout(Duration.ofSeconds(120))
+            .timeout(Duration.ofSeconds(320))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body))
             .build()

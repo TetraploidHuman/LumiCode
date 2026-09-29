@@ -98,9 +98,15 @@ class DshHostClient(
     }
 
     /**
-     * Create a session (or reuse), select qwen35-250 / qwen35-9b, prompt, poll until a turn response.
+     * Create a session (or reuse), select model, prompt, poll until a turn response.
+     * [cwd] is the absolute project directory for DSH filesystem tools.
      */
-    suspend fun chat(text: String, sessionId: String? = null, titleHint: String? = null): ChatResult {
+    suspend fun chat(
+        text: String,
+        sessionId: String? = null,
+        titleHint: String? = null,
+        cwd: String? = null,
+    ): ChatResult {
         if (!ensureAuth()) {
             return ChatResult(ok = false, error = lastError ?: "unauthorized")
         }
@@ -108,16 +114,18 @@ class DshHostClient(
         if (promptText.isEmpty()) {
             return ChatResult(ok = false, error = "empty prompt")
         }
+        val projectCwd = cwd?.trim()?.takeIf { it.isNotEmpty() }
 
         return try {
-            val sid = sessionId?.takeIf { it.isNotBlank() } ?: createSession()
+            val sid = sessionId?.takeIf { it.isNotBlank() }
+                ?: createSession(cwd = projectCwd)
             selectModel(sid)
             if (!titleHint.isNullOrBlank()) {
                 runCatching { rename(sid, titleHint.take(48)) }
             }
             val requestId = "req-" + UUID.randomUUID()
             prompt(sid, requestId, promptText)
-            val reply = waitForReply(sid, promptText)
+            val reply = waitForReply(sid, promptText, timeoutMs = 300_000)
             if (reply == null) {
                 ChatResult(ok = false, sessionId = sid, error = "timed out waiting for DSH reply")
             } else {
@@ -129,11 +137,13 @@ class DshHostClient(
         }
     }
 
-    private suspend fun createSession(): String {
+    private suspend fun createSession(cwd: String? = null): String {
         val body = rpc(
             "session/create",
             buildJsonObject {
-                putJsonObject("request") { }
+                putJsonObject("request") {
+                    if (!cwd.isNullOrBlank()) put("cwd", cwd)
+                }
             },
         )
         val sid = body.dig("result", "value", "sessionId")?.jsonPrimitive?.contentOrNull
@@ -299,6 +309,8 @@ data class ChatRequest(
     val text: String,
     val sessionId: String? = null,
     val title: String? = null,
+    /** Absolute workspace path; bound as DSH session cwd so file tools hit the right tree. */
+    val cwd: String? = null,
 )
 
 @Serializable

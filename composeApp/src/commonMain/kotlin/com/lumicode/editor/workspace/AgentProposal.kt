@@ -70,10 +70,9 @@ fun applyLineEdit(source: String, startLine: Int, endLine: Int, replacement: Str
 
 fun buildAgentPromptFooter(): String = buildString {
     appendLine()
-    appendLine("回复格式要求：")
-    appendLine("1) 先用中文写 3–6 句给人看的提案摘要。")
-    appendLine("2) 然后单独一行写 $MARKER")
-    appendLine("3) 紧跟 JSON（不要 markdown 围栏）：")
-    appendLine("""{"edits":[{"path":"相对路径","startLine":1,"endLine":1,"content":"替换后的完整行段内容"}]}""")
-    append("若仅建议、无需改文件，edits 可为空数组 []。")
+    appendLine("工具与回复要求：")
+    appendLine("1) 工作区根已绑定为当前项目目录；请用你的文件工具（读/写/列目录等）直接改盘。")
+    appendLine("2) 不要输出 ---LUMICODE_EDIT--- 或大段代写 JSON；LumiCode 会从磁盘刷新。")
+    appendLine("3) 完成后用中文写 3–6 句摘要：改了哪些相对路径、意图、风险。")
+    append("4) 若只建议未改文件，也请明确说明。")
 }

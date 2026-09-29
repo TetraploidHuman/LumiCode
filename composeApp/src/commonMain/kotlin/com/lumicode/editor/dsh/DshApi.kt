@@ -2,6 +2,9 @@ package com.lumicode.editor.dsh
 
 /**
  * Browser → `/api/dsh/…` → lumicode-dsh-bridge → dsh-web (qwen35-250 / qwen35-9b).
+ *
+ * File read/write is DSH's job (session cwd). LumiCode only sends the workspace path
+ * and refreshes the editor from disk after the agent finishes.
  */
 data class DshHealth(
     val ok: Boolean,
@@ -21,7 +24,12 @@ data class DshChatResult(
 
 interface DshBackend {
     suspend fun health(): DshHealth
-    suspend fun chat(text: String, sessionId: String? = null, title: String? = null): DshChatResult
+    suspend fun chat(
+        text: String,
+        sessionId: String? = null,
+        title: String? = null,
+        cwd: String? = null,
+    ): DshChatResult
 }
 
 object DshApi {
@@ -30,8 +38,13 @@ object DshApi {
     suspend fun health(): DshHealth =
         backend?.health() ?: DshHealth(ok = false, error = "DSH backend not installed")
 
-    suspend fun chat(text: String, sessionId: String? = null, title: String? = null): DshChatResult =
-        backend?.chat(text, sessionId, title)
+    suspend fun chat(
+        text: String,
+        sessionId: String? = null,
+        title: String? = null,
+        cwd: String? = null,
+    ): DshChatResult =
+        backend?.chat(text, sessionId, title, cwd)
             ?: DshChatResult(ok = false, error = "DSH backend not installed")
 }
 

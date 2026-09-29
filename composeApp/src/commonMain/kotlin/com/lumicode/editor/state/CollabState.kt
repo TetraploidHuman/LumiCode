@@ -279,7 +279,7 @@ class CollabState {
             appendLine("用户理解口径：${understandingLevel.labelZh()}")
             if (!workspaceBlock.isNullOrBlank()) {
                 appendLine()
-                appendLine("当前工作区（真实磁盘，路径相对工作区根）：")
+                appendLine("工作区摘要（真实磁盘；请用工具自行打开需要的文件，勿依赖本摘要代替读盘）：")
                 appendLine(workspaceBlock)
             }
             if (known.isNotBlank()) {
@@ -295,6 +295,10 @@ class CollabState {
         }
     }
 
+    fun clearDshSessions() {
+        dshSessionByAgent.clear()
+    }
+
     private fun scheduleDshTask(taskId: String) {
         pendingDshTaskId = taskId
         dshRequestToken++
@@ -305,31 +309,29 @@ class CollabState {
         sessionId?.let { dshSessionByAgent[task.agentId] = it }
         val agentId = task.agentId
         val agent = task.agentName
+        // 仍尝试解析旧格式 edits（兼容）；主路径是 DSH 工具已写盘，摘要给人看。
         val parsed = parseAgentReply(reply)
-        val brief = parsed.summary
+        val brief = parsed.summary.ifBlank { reply.trim() }.ifBlank { "（无摘要）" }
         val first = parsed.edits.firstOrNull()
         updateTask(taskId) {
             it.copy(
                 beat = 1,
                 status = TaskStatus.PROPOSAL,
-                statusLine = if (parsed.edits.isEmpty()) "DSH 提案 · 等你定" else "DSH 提案 · ${parsed.edits.size} 处改动",
+                statusLine = "DSH 已执行 · 等你确认同步",
                 proposalPath = first?.path,
                 proposalStart = first?.startLine ?: 0,
                 proposalEnd = first?.endLine ?: 0,
                 proposalSummary = brief,
-                proposalNote = buildString {
-                    append(dshModelLabel ?: "DSH · qwen35-9b")
-                    if (parsed.edits.isNotEmpty()) append(" · 待落盘 ${parsed.edits.size} 处")
-                },
+                proposalNote = "${dshModelLabel ?: "DSH · qwen35-9b"} · 文件由 DSH 工具改盘",
                 userBrief = brief,
                 exploredTerms = emptyList(),
                 proposalEdits = parsed.edits,
             )
         }
-        setWorker(agentId, taskId, "等你定 · DSH 提案在桌", phase = MemberPhase.ACTIVE)
-        journal(agentId, "DSH 回执 · ${dshModelLabel ?: "qwen35-9b"}", LineKind.WARN)
+        setWorker(agentId, taskId, "等你定 · 磁盘可能已变", phase = MemberPhase.ACTIVE)
+        journal(agentId, "DSH 回执 · ${dshModelLabel ?: "qwen35-9b"}（工具写盘）", LineKind.WARN)
         journal(agentId, brief.lines().firstOrNull()?.take(100) ?: brief.take(100), LineKind.INFO)
-        teamNote("$agent DSH 提案就绪 · 等上级", LineKind.WARN)
+        teamNote("$agent DSH 完成 · 请确认同步编辑器", LineKind.WARN)
         pendingDshTaskId = null
     }
 

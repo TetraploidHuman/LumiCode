@@ -57,7 +57,7 @@ fun main() {
             }
             post("/v1/chat") {
                 val req = call.receive<ChatRequest>()
-                val result = client.chat(req.text, req.sessionId, req.title)
+                val result = client.chat(req.text, req.sessionId, req.title, req.cwd)
                 call.respond(if (result.ok) HttpStatusCode.OK else HttpStatusCode.BadGateway, result)
             }
             get("/") {

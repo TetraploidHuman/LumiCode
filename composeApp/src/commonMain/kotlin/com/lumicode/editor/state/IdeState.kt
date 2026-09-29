@@ -865,6 +865,7 @@ class IdeState(initialFiles: List<CodeFile> = emptyList()) {
         workspaceRoot = opened.root ?: path
         workspaceMounted = true
         shellCwd = ""
+        collab.clearDshSessions()
         LocalPrefs.set(KEY_WORKSPACE, workspaceRoot!!)
         if (seededReadme) {
             flushPersist("README.md")
@@ -933,51 +934,78 @@ class IdeState(initialFiles: List<CodeFile> = emptyList()) {
         return true
     }
 
-    /** 供 Agent prompt 使用的工作区摘要与文件片段。 */
-    suspend fun workspaceContextBlock(maxFiles: Int = 8, maxCharsPerFile: Int = 3500): String {
+    /** 供 Agent 的轻量目录（不塞文件正文；正文由 DSH 工具自己读）。 */
+    fun workspaceListingBlock(maxEntries: Int = 80): String {
         if (!workspaceMounted) return ""
         val rootLine = workspaceRoot?.let { "工作区根：$it" }.orEmpty()
-        val listing = contents.keys.sorted().take(48).joinToString("\n") { "- $it" }
-        val paths = buildList {
-            activePath?.let { add(it) }
-            contents.keys.sorted().forEach { if (it !in this) add(it) }
-        }.take(maxFiles)
-        for (path in paths) {
-            if (path in unloadedPaths) flushLoad(path)
-        }
-        val snippets = buildString {
-            for (path in paths) {
-                val text = contentOf(path)
-                if (text.isEmpty() && path in unloadedPaths) continue
-                val clipped = if (text.length <= maxCharsPerFile) text else text.take(maxCharsPerFile) + "\n…"
-                appendLine()
-                appendLine("--- file: $path ---")
-                append(clipped)
-            }
-        }
+        val listing = contents.keys.sorted().take(maxEntries).joinToString("\n") { "- $it" }
         return buildString {
             appendLine(rootLine)
-            appendLine("文件列表（相对路径）：")
-            appendLine(listing)
+            appendLine("文件列表（相对路径，可能不全）：")
+            appendLine(listing.ifEmpty { "（空目录或尚未索引）" })
             if (activePath != null) appendLine("当前打开：$activePath")
-            append(snippets)
         }.trim()
     }
 
+    /** 从磁盘重新拉树与已打开文件内容（DSH 工具改盘后同步编辑器）。 */
+    suspend fun reloadWorkspaceFromDisk(): Boolean {
+        if (!workspaceMounted) return false
+        val tree = WorkspaceApi.loadTree()
+        if (!tree.ok) {
+            statusMessage = tree.error ?: "刷新工作区失败"
+            return false
+        }
+        val keepOpen = openTabs.toList()
+        val keepActive = activePath
+        val seen = tree.files.toSet()
+        for (rel in tree.files) {
+            if (!catalogue.containsKey(rel)) {
+                catalogue[rel] = CodeFile(rel, "", defaultMetaForPath(rel, catalogue.size + 1))
+                contents[rel] = ""
+                savedSnapshot[rel] = ""
+            }
+            unloadedPaths += rel
+            contents[rel] = ""
+        }
+        emptyFolders.clear()
+        for (folder in tree.folders) emptyFolders[folder] = true
+        // 磁盘上已删的条目从目录拿掉（未打开的）
+        catalogue.keys.filter { it !in seen && it !in keepOpen }.toList().forEach { path ->
+            catalogue.remove(path)
+            contents.remove(path)
+            savedSnapshot.remove(path)
+            unloadedPaths.remove(path)
+        }
+        rebuildTree()
+        for (path in keepOpen) {
+            if (path in seen) flushLoad(path)
+        }
+        if (keepActive != null && keepActive in seen) {
+            activePath = keepActive
+            if (keepActive in unloadedPaths) flushLoad(keepActive)
+            bumpDocumentEpoch(keepActive)
+        } else {
+            tree.files.firstOrNull()?.let { open(it) }
+        }
+        appendLog("同步磁盘工作区")
+        return true
+    }
+
+    /**
+     * 上级点「顺着」：DSH 工具已改盘时只同步编辑器；若仍带旧式 edits 则兼容落盘。
+     */
     suspend fun applyAgentProposal(taskId: String? = collab.selectedTaskId): Boolean {
         val id = taskId ?: return false
         val task = collab.tasks.firstOrNull { it.id == id } ?: return false
-        if (task.proposalEdits.isEmpty()) {
-            collab.goAlong(id)
-            return true
+        var ok = reloadWorkspaceFromDisk()
+        if (task.proposalEdits.isNotEmpty()) {
+            for (edit in task.proposalEdits) {
+                ok = applyAgentEdit(edit) && ok
+            }
+            rebuildTree()
         }
-        var ok = true
-        for (edit in task.proposalEdits) {
-            ok = applyAgentEdit(edit) && ok
-        }
-        rebuildTree()
         collab.goAlong(id)
-        statusMessage = if (ok) "已同意并落盘" else "已同意 · 部分落盘失败"
+        statusMessage = if (ok) "已同步 DSH 磁盘变更" else "已确认 · 同步不完整"
         return ok
     }
 

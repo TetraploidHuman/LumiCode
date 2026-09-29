@@ -24,20 +24,28 @@ fun CollabDshEffects(state: IdeState) {
             state.openWorkspacePicker()
             return@LaunchedEffect
         }
+        val cwd = state.workspaceRoot
+        if (cwd.isNullOrBlank()) {
+            collab.failDshTask(taskId, "工作区根路径未知")
+            return@LaunchedEffect
+        }
         collab.dshBusy = true
         val prompt = collab.buildDshPrompt(
             task.title,
             collab.consumeDshSupervisorNote(),
-            state.workspaceContextBlock(),
+            state.workspaceListingBlock(),
         )
         val result = DshApi.chat(
             text = prompt,
             sessionId = collab.dshSessionFor(task.agentId),
             title = task.title,
+            cwd = cwd,
         )
         if (result.ok && !result.reply.isNullOrBlank()) {
             collab.completeDshTask(taskId, result.reply!!, result.sessionId)
-            state.statusMessage = "小队 · DSH 已回提案（${result.model ?: "qwen35-9b"}）"
+            // DSH 工具可能已写盘：立刻把树拉进编辑器，等人点「顺着」只做确认。
+            state.reloadWorkspaceFromDisk()
+            state.statusMessage = "小队 · DSH 已改盘并回摘要（${result.model ?: "qwen35-9b"}）"
         } else {
             collab.failDshTask(taskId, result.error ?: "无回复")
             state.statusMessage = "小队 · DSH 失败：${result.error ?: "无回复"}"
