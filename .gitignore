@@ -4,3 +4,7 @@ local.properties
 .idea/
 *.iml
 .kotlin/
+
+__pycache__/
+*.pyc
+kotlin-js-store/
